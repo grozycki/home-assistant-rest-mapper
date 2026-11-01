@@ -138,7 +138,7 @@ from .proposals import (
     roles_for,
 )
 from .store import StoredEndpoint, async_load, endpoint_store
-from .texts import Texts, async_load_texts
+from .texts import ClassLabels, Texts, async_load_class_labels, async_load_texts
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -206,6 +206,15 @@ def _choice(values: Sequence[str], translation_key: str) -> SelectSelector:
             translation_key=translation_key,
             mode=SelectSelectorMode.DROPDOWN,
         )
+    )
+
+
+def _class_choice(values: Sequence[str], labels: Mapping[str, str]) -> SelectSelector:
+    """Return a choice of classes by Home Assistant's own names, in name order."""
+    options = [SelectOptionDict(value=item, label=labels.get(item, item)) for item in values]
+    options.sort(key=lambda option: option["label"].casefold())
+    return SelectSelector(
+        SelectSelectorConfig(options=options, mode=SelectSelectorMode.DROPDOWN, sort=False)
     )
 
 
@@ -793,22 +802,25 @@ def _valid_path(text: str, *, relative: bool) -> bool:
     return True
 
 
-def _settings_schema(kind: str) -> dict[vol.Marker, Any]:
+def _settings_schema(kind: str, labels: ClassLabels) -> dict[vol.Marker, Any]:
     """Return a kind's settings fields."""
     if kind == "sensor":
         return {
             vol.Optional("value_type"): _choice(tuple(ValueType), "value_type"),
-            vol.Optional("device_class"): _plain_choice(
-                tuple(item for item in SensorDeviceClass if item is not SensorDeviceClass.ENUM)
+            vol.Optional("device_class"): _class_choice(
+                tuple(item for item in SensorDeviceClass if item is not SensorDeviceClass.ENUM),
+                labels.sensor,
             ),
             vol.Optional("unit_of_measurement"): _text_field(),
-            vol.Optional("state_class"): _plain_choice(tuple(SensorStateClass)),
+            vol.Optional("state_class"): _class_choice(tuple(SensorStateClass), labels.state_class),
             vol.Optional("suggested_display_precision"): _number_field(0, 9),
             vol.Optional("naive_local"): BooleanSelector(),
         }
     if kind == "binary_sensor":
         return {
-            vol.Optional("device_class"): _plain_choice(tuple(BinarySensorDeviceClass)),
+            vol.Optional("device_class"): _class_choice(
+                tuple(BinarySensorDeviceClass), labels.binary_sensor
+            ),
             vol.Optional("on_values"): _text_field(),
             vol.Optional("off_values"): _text_field(),
         }
@@ -834,13 +846,32 @@ def _validate_settings(settings: Mapping[str, Any]) -> str | None:
     if sensor_class is None:
         return None
     units = DEVICE_CLASS_UNITS.get(sensor_class)
-    if units is not None and settings.get("unit_of_measurement") not in units:
+    unit = settings.get("unit_of_measurement") or _only_unit(sensor_class)
+    if units is not None and unit not in units:
         return "unit_mismatch"
     state_class = settings.get("state_class")
     allowed = DEVICE_CLASS_STATE_CLASSES.get(sensor_class)
     if state_class and allowed is not None and SensorStateClass(state_class) not in allowed:
         return "state_class_mismatch"
     return None
+
+
+def _only_unit(sensor_class: SensorDeviceClass | None) -> str | None:
+    """Return the unit of a class that has just one."""
+    units = DEVICE_CLASS_UNITS.get(sensor_class) if sensor_class is not None else None
+    if units is None or len(units) != 1:
+        return None
+    only = next(iter(units))
+    return str(only) if isinstance(only, str) else None
+
+
+def _fill_unit(settings: dict[str, JsonValue]) -> None:
+    """Fill in a unit that the device class settles."""
+    device_class = settings.get("device_class")
+    if isinstance(device_class, str) and not settings.get("unit_of_measurement"):
+        unit = _only_unit(SensorDeviceClass(device_class))
+        if unit is not None:
+            settings["unit_of_measurement"] = unit
 
 
 def _clean_settings(settings: Mapping[str, Any]) -> dict[str, JsonValue]:
@@ -877,6 +908,7 @@ class _MappingFlow(ConfigSubentryFlow):
         self._list_path: str | None = None
         self._key_path: str | None = None
         self._listed = Flattened((), (), False)
+        self._labels = ClassLabels()
         self._suggestions: list[tuple[CollectionCandidate, CollectionSuggestion]] = []
         self._offer_save_anyway = False
 
@@ -894,6 +926,7 @@ class _MappingFlow(ConfigSubentryFlow):
 
     async def _async_list_data(self) -> None:
         """List the stored data, away from the event loop."""
+        self._labels = await async_load_class_labels(self.hass)
         coordinator = self._coordinator()
         if coordinator is not None and coordinator.stored.has_body:
             self._listed, self._suggestions = await self.hass.async_add_executor_job(
@@ -1009,7 +1042,7 @@ class SingleMappingFlow(_MappingFlow):
                 )
             )
         self._save_anyway_field(main)
-        advanced: dict[vol.Marker, Any] = dict(_settings_schema(self.kind_name))
+        advanced: dict[vol.Marker, Any] = dict(_settings_schema(self.kind_name, self._labels))
         if self.kind_name != "device_tracker" and self.source != "reconfigure":
             advanced[vol.Optional(TITLE)] = _text_field()
         advanced[vol.Optional(ATTRIBUTES)] = _attribute_field(fields)
@@ -1171,6 +1204,7 @@ class SingleMappingFlow(_MappingFlow):
         self._settings = {**kept, **typed}
         if self.kind_name == "sensor":
             self._settings.setdefault("value_type", ValueType.TEXT.value)
+            _fill_unit(self._settings)
             error = _validate_settings(self._settings)
             if error is not None:
                 errors["base"] = error
@@ -1351,7 +1385,7 @@ class CollectionFlow(_MappingFlow):
             advanced[vol.Optional(ROLE_NAME)] = _labelled_field(texts_fields)
         for role in definition.roles:
             advanced[vol.Optional(role.name)] = _labelled_field(texts_fields)
-        advanced.update(_settings_schema(self._kind))
+        advanced.update(_settings_schema(self._kind, self._labels))
         advanced[vol.Optional(ITEM_LIMIT)] = _number_field(1, MAX_ITEM_LIMIT)
         advanced[vol.Optional(REMOVAL_AFTER)] = _number_field(1, 10)
         advanced[vol.Optional(EVENTS)] = BooleanSelector()
@@ -1396,7 +1430,7 @@ class CollectionFlow(_MappingFlow):
         attributes, error = _read_attribute_rows(advanced.get(ATTRIBUTES, []), relative=True)
         if error is not None:
             return error
-        settings_keys = {str(marker) for marker in _settings_schema(self._kind)}
+        settings_keys = {str(marker) for marker in _settings_schema(self._kind, self._labels)}
         settings = _clean_settings(
             {
                 name: advanced[name]
@@ -1405,6 +1439,7 @@ class CollectionFlow(_MappingFlow):
             }
         )
         if self._kind == "sensor":
+            _fill_unit(settings)
             error = _validate_settings(settings)
             if error is not None:
                 return error

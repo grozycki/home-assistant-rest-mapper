@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Final, final
 
 from homeassistant.util import slugify
@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 MAX_PROPOSED_FIELDS: Final = 8
 PRESELECTED_FIELDS: Final = 3
 PREVIEW_ITEMS: Final = 3
+_UNITS_MARKER: Final = "_units."
 PREVIEW_NAME: Final = 32
 _LIST_TEXTS: Final = {
     EntityKind.DEVICE_TRACKER: "list_places",
@@ -161,27 +162,49 @@ def field_data(suggestion: FieldSuggestion, path: str) -> dict[str, JsonValue]:
     return mapping_data(suggestion.kind.value, {"value": path}, settings, {})
 
 
+def _unit_table(fields: tuple[FlatField, ...]) -> dict[str, str]:
+    """Find units listed beside values, as in `current_units.temperature`."""
+    return {
+        item.path.replace(_UNITS_MARKER, ".", 1): item.example
+        for item in fields
+        if _UNITS_MARKER in item.path and item.type is ScalarType.TEXT
+    }
+
+
+def _field_suggestion(item: FlatField, units: dict[str, str]) -> FieldSuggestion:
+    """Propose a field, using a unit the API states itself."""
+    suggestion = suggest_field(item)
+    unit = units.get(item.path)
+    if unit is None or suggestion.value_type is not ValueType.NUMBER:
+        return suggestion
+    return replace(suggestion, unit=unit)
+
+
 def _field_proposals(fields: tuple[FlatField, ...], *, preselect: bool) -> list[Proposal]:
-    """Offer top-level fields. List items are offered through their list."""
+    """Offer top-level fields, most meaningful first. List items go through their list."""
+    units = _unit_table(fields)
     usable = [
         item
         for item in fields
-        if "[" not in item.path and item.type not in (ScalarType.NULL, ScalarType.GEOMETRY)
+        if "[" not in item.path
+        and _UNITS_MARKER not in item.path
+        and item.type not in (ScalarType.NULL, ScalarType.GEOMETRY)
     ]
-    proposals: list[Proposal] = []
-    for index, item in enumerate(usable[:MAX_PROPOSED_FIELDS]):
-        suggestion = suggest_field(item)
-        proposals.append(
-            Proposal(
-                f"field:{item.path}",
-                f"{label_for(item.path)}: {item.example}",
-                suggestion.kind.value,
-                suggestion.name,
-                field_data(suggestion, item.path),
-                preselect and index < PRESELECTED_FIELDS,
-            )
+    suggested = [(item, _field_suggestion(item, units)) for item in usable]
+    suggested.sort(key=lambda pair: (pair[1].device_class is None, pair[1].unit is None))
+    meaningful = sum(1 for _, item in suggested if item.device_class or item.unit)
+    picked = min(meaningful, PRESELECTED_FIELDS) or PRESELECTED_FIELDS
+    return [
+        Proposal(
+            f"field:{item.path}",
+            f"{label_for(item.path)}: {item.example}",
+            suggestion.kind.value,
+            suggestion.name,
+            field_data(suggestion, item.path),
+            preselect and index < picked,
         )
-    return proposals
+        for index, (item, suggestion) in enumerate(suggested[:MAX_PROPOSED_FIELDS])
+    ]
 
 
 def build_proposals(

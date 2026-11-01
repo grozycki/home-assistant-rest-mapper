@@ -226,6 +226,28 @@ async def test_new_address_needs_a_new_warning(
     assert result["step_id"] == "insecure"
 
 
+async def test_weather_fields_come_first_with_the_units_of_the_api(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    body: JsonValue = {
+        "latitude": 50.2,
+        "longitude": 19.0,
+        "generationtime_ms": 0.04,
+        "timezone": "GMT",
+        "current_units": {"temperature_2m": "°C", "wind_speed_10m": "km/h"},
+        "current": {"temperature_2m": 6.9, "wind_speed_10m": 12.6},
+    }
+    api.will(response(body))
+    result = await begin(hass)
+    schema = result["data_schema"]
+    assert schema is not None
+    default = {str(key): key for key in schema.schema}["selected_fields"].default()
+    assert set(default) == {"field:$.current.temperature_2m", "field:$.current.wind_speed_10m"}
+    await finish(hass, result, {**FOUND, "selected_fields": default})
+    wind = state_of(hass, "sensor.api_example_com_wind_speed_10_m")
+    assert wind.attributes["unit_of_measurement"] == "km/h"
+
+
 async def test_nothing_recognised(hass: HomeAssistant, hass_storage: Storage, api: FakeApi) -> None:
     api.will(response([]))
     result = await begin(hass)
@@ -503,6 +525,33 @@ async def test_nothing_chosen(hass: HomeAssistant, hass_storage: Storage, api: F
     result = await add(hass, entry, "sensor")
     result = await step(hass, result, {})
     assert result["errors"] == {"base": "choose_field"}
+
+
+async def test_classes_use_home_assistant_names(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, BODY, [])
+    await start(hass, entry)
+    result = await add(hass, entry, "sensor")
+    schema = result["data_schema"]
+    assert schema is not None
+    advanced = {str(key): value for key, value in schema.schema.items()}["advanced"].schema
+    fields = {str(key): value for key, value in advanced.schema.items()}
+    labels = {item["value"]: item["label"] for item in fields["device_class"].config["options"]}
+    assert labels["humidity"] == "Humidity"
+    states = {item["value"]: item["label"] for item in fields["state_class"].config["options"]}
+    assert states["measurement"] == "Measurement"
+
+
+async def test_class_with_one_unit_fills_it_in(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, {"h": 60}, [])
+    await start(hass, entry)
+    result = await add(hass, entry, "sensor")
+    await step(hass, result, {"selected_fields": ["$.h"], **adv(device_class="humidity")})
+    await hass.async_block_till_done()
+    assert state_of(hass, "sensor.api_example_com_h").attributes["unit_of_measurement"] == "%"
 
 
 async def test_unit_does_not_fit(hass: HomeAssistant, hass_storage: Storage, api: FakeApi) -> None:
