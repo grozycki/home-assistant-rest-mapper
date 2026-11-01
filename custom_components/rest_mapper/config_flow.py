@@ -375,6 +375,7 @@ def _suggest_lists(
     return [
         (candidate, suggest_collection(body, candidate, now, zone))
         for candidate in found.collections
+        if "[" not in candidate.path
     ]
 
 
@@ -426,7 +427,10 @@ class RestMapperConfigFlow(ConfigFlow, domain=DOMAIN):
             {
                 vol.Optional(CONF_AUTH_TYPE): _choice(
                     (AUTH_NONE, AUTH_BEARER, AUTH_HEADER, AUTH_QUERY), "auth_type"
-                )
+                ),
+                vol.Optional(CONF_MAX_KIB): _number_field(
+                    MIN_MAX_BYTES // 1024, MAX_MAX_BYTES // 1024
+                ),
             }
         )
         schema = vol.Schema(
@@ -451,6 +455,8 @@ class RestMapperConfigFlow(ConfigFlow, domain=DOMAIN):
         url = str(user_input[CONF_URL]).strip()
         self._data = {CONF_URL: url, CONF_AUTH_TYPE: AUTH_NONE}
         self._confirmed_insecure = False
+        size_limit = user_input.get(ADVANCED, {}).get(CONF_MAX_KIB)
+        self._options = {CONF_MAX_KIB: int(size_limit)} if size_limit else {}
         error = _validate_url(url)
         if error is not None:
             return self._user_form({CONF_URL: error})
@@ -561,7 +567,7 @@ class RestMapperConfigFlow(ConfigFlow, domain=DOMAIN):
             return await self._async_finish(
                 result,
                 [item for item in proposals if item.identifier in chosen],
-                _polling_options(user_input),
+                {**_polling_options(user_input), **self._options},
             )
         advanced = vol.Schema(
             {
@@ -841,6 +847,7 @@ def _validate_settings(settings: Mapping[str, Any]) -> str | None:
         sensor_class is not None
         or settings.get("state_class")
         or settings.get("unit_of_measurement")
+        or settings.get("suggested_display_precision") is not None
     ) and value_type != ValueType.NUMBER:
         return "value_type_mismatch"
     if sensor_class is None:
@@ -1056,7 +1063,11 @@ class SingleMappingFlow(_MappingFlow):
             ADVANCED: {
                 **self._settings,
                 ATTRIBUTES: self._attribute_rows(),
-                **previous.get(ADVANCED, {}),
+                **{
+                    key: value
+                    for key, value in previous.get(ADVANCED, {}).items()
+                    if key != REFRESH
+                },
             },
         }
         return self.add_suggested_values_to_schema(vol.Schema(main), suggested)
@@ -1314,6 +1325,7 @@ class CollectionFlow(_MappingFlow):
         if suggestion is None or candidate is None:
             self._kind = kind or self._kind or "sensor"
             self._key_path = self._key_path or ""
+            self._settings.setdefault(EVENTS, True)
             return
         self._kind = kind or suggestion.kind.value
         self._key_path = self._key_path or suggestion.key

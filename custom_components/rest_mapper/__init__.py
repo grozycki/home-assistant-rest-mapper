@@ -41,6 +41,7 @@ def _fingerprints(entry: RestMapperConfigEntry) -> dict[str, str]:
 
 async def async_setup_entry(hass: HomeAssistant, entry: RestMapperConfigEntry) -> bool:
     """Set up from stored data. No request is sent."""
+    loaded_settings = (dict(entry.data), dict(entry.options))
     store = endpoint_store(hass, str(entry.data[CONF_STORAGE_ID]))
     coordinator = EndpointCoordinator(hass, entry, store, await async_load(store))
     await coordinator.async_start()
@@ -54,9 +55,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: RestMapperConfigEntry) -
     await hass.config_entries.async_forward_entry_setups(entry, coordinator.platforms)
     entry.async_on_unload(entry.add_update_listener(_async_reload))
     # The listener is gone during a reload, so a change in that window would be lost.
-    if _fingerprints(entry) != {
-        key: item.fingerprint for key, item in coordinator.mappings.items()
-    }:
+    mappings = {key: item.fingerprint for key, item in coordinator.mappings.items()}
+    if _fingerprints(entry) != mappings or loaded_settings != (
+        dict(entry.data),
+        dict(entry.options),
+    ):
         hass.config_entries.async_schedule_reload(entry.entry_id)
     return True
 

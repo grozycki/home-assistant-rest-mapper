@@ -688,3 +688,32 @@ async def test_section_without_answers_keeps_the_proposal(
     result = await step(hass, result, answers)
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
+
+
+async def test_disabled_item_leaves_with_its_registry_entry(
+    hass: HomeAssistant,
+    hass_storage: Storage,
+    api: FakeApi,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    entry = make_entry(hass, hass_storage, items(1, 2), [SENSORS])
+    await start(hass, entry)
+    registry = er.async_get(hass)
+    registry.async_update_entity("sensor.things_2", disabled_by=er.RegistryEntryDisabler.USER)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    api.will(response(items(1)))
+    await poll(hass, freezer)
+    await poll(hass, freezer)
+    await hass.async_block_till_done()
+    assert registry.async_get("sensor.things_2") is None
+
+
+async def test_collection_with_no_proposal_has_events(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, {"ac": []}, [])
+    await start(hass, entry)
+    result = await add(hass, entry)
+    result = await step(hass, result, {"list_path": "$.ac"})
+    assert form(result)["advanced"]["events"] is True  # type: ignore[index]  # A section is a dict.

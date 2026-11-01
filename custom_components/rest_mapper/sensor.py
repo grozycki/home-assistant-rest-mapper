@@ -102,6 +102,7 @@ class MappedSensor(ItemName, SensorEntity):
             device_class is not None
             or self.state_class is not None
             or self.native_unit_of_measurement is not None
+            or self.suggested_display_precision is not None
         )
         if needs_number and not isinstance(value, int | float):
             return None

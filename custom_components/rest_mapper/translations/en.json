@@ -11,7 +11,8 @@
           "advanced": {
             "name": "Advanced options",
             "data": {
-              "auth_type": "Authentication"
+              "auth_type": "Authentication",
+              "max_response_kib": "Response size limit in KiB"
             }
           }
         }
@@ -73,7 +74,7 @@
       "server_error": "The endpoint reports a server error.",
       "bad_status": "The service refused this address. Check that it is complete.",
       "bad_redirect": "The endpoint redirects to another address, which is not followed, to protect credentials.",
-      "too_large": "The response is larger than the size limit.",
+      "too_large": "The response is larger than the limit. Raise it under Advanced options.",
       "not_json": "This address returned a web page or other text, not JSON data. Check the address.",
       "already_configured": "This endpoint is already configured.",
       "name_required": "Enter the name of the header or parameter."

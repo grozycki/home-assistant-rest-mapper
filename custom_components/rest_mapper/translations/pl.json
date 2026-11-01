@@ -11,7 +11,8 @@
           "advanced": {
             "name": "Opcje zaawansowane",
             "data": {
-              "auth_type": "Autoryzacja"
+              "auth_type": "Autoryzacja",
+              "max_response_kib": "Limit rozmiaru odpowiedzi w KiB"
             }
           }
         }
@@ -73,7 +74,7 @@
       "server_error": "Endpoint zgłasza błąd serwera.",
       "bad_status": "Usługa odrzuciła ten adres. Sprawdź, czy jest kompletny.",
       "bad_redirect": "Endpoint przekierowuje na inny adres. Dla ochrony danych logowania nie jest to wykonywane.",
-      "too_large": "Odpowiedź przekracza limit rozmiaru.",
+      "too_large": "Odpowiedź przekracza limit. Podnieś go w opcjach zaawansowanych.",
       "not_json": "Ten adres zwrócił stronę lub inny tekst, a nie dane JSON. Sprawdź adres.",
       "already_configured": "Ten endpoint jest już skonfigurowany.",
       "name_required": "Podaj nazwę nagłówka lub parametru."

@@ -377,8 +377,12 @@ class EndpointCoordinator(DataUpdateCoordinator[EndpointData]):
         if credentials_changed:
             policy.credentials_changed()
         data = await self._apply(fetched)
+        self.last_failed = False
+        self._failing = False
         self.async_set_updated_data(data)
         self._schedule_next()
+        self._schedule_expiry(data.confirmed_at)
+        async_update_issues(self, data)
         await self.async_save()
 
     def status(self) -> Status:

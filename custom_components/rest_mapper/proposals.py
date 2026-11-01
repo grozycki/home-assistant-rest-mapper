@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Final, final
 
+from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.components.sensor.const import DEVICE_CLASS_UNITS
 from homeassistant.util import slugify
 
 from .evaluation import read_value
@@ -177,6 +179,10 @@ def _field_suggestion(item: FlatField, units: dict[str, str]) -> FieldSuggestion
     unit = units.get(item.path)
     if unit is None or suggestion.value_type is not ValueType.NUMBER:
         return suggestion
+    if suggestion.device_class is not None:
+        allowed = DEVICE_CLASS_UNITS.get(SensorDeviceClass(suggestion.device_class))
+        if allowed is not None and unit not in allowed:
+            return replace(suggestion, unit=unit, device_class=None)
     return replace(suggestion, unit=unit)
 
 

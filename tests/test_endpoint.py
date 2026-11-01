@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -396,3 +397,34 @@ async def test_overdue_request_waits_after_startup(
     assert api.calls == 0
     await poll(hass, freezer, 1)
     assert api.calls == 1
+
+
+async def test_new_credentials_clear_the_problem(
+    hass: HomeAssistant,
+    hass_storage: Storage,
+    api: FakeApi,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    api.will(ConnectFailedError("down"))
+    entry = make_entry(hass, hass_storage, {"temp": 21.5}, [sensor_subentry()])
+    await start(hass, entry)
+    await poll(hass, freezer)
+    assert state_of(hass, STALE).state == "on"
+    await entry.runtime_data.async_replace_sample(response({"temp": 22}), credentials_changed=True)
+    await hass.async_block_till_done()
+    assert state_of(hass, STALE).state == "off"
+
+
+async def test_options_changed_during_a_reload_are_not_lost(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, {"temp": 21.5}, [sensor_subentry()])
+    await start(hass, entry)
+    reload = hass.async_create_task(hass.config_entries.async_reload(entry.entry_id))
+    await asyncio.sleep(0)
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "interval_seconds": 120}
+    )
+    await reload
+    await hass.async_block_till_done()
+    assert entry.runtime_data.policy.config.interval.total_seconds() == 120

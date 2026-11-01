@@ -226,6 +226,19 @@ async def test_new_address_needs_a_new_warning(
     assert result["step_id"] == "insecure"
 
 
+async def test_unit_from_the_api_that_does_not_fit_drops_the_class(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    body: JsonValue = {"now_units": {"humidity": "%rh"}, "now": {"humidity": 60}}
+    api.will(response(body))
+    result = await finish(
+        hass, await begin(hass), {**FOUND, "selected_fields": ["field:$.now.humidity"]}
+    )
+    settings = next(iter(result["result"].subentries.values())).data["settings"]
+    assert settings["unit_of_measurement"] == "%rh"
+    assert "device_class" not in settings
+
+
 async def test_weather_fields_come_first_with_the_units_of_the_api(
     hass: HomeAssistant, hass_storage: Storage, api: FakeApi
 ) -> None:
@@ -246,6 +259,33 @@ async def test_weather_fields_come_first_with_the_units_of_the_api(
     await finish(hass, result, {**FOUND, "selected_fields": default})
     wind = state_of(hass, "sensor.api_example_com_wind_speed_10_m")
     assert wind.attributes["unit_of_measurement"] == "km/h"
+
+
+async def test_nested_lists_are_not_proposed(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    item: JsonValue = {
+        "properties": {"id": "a", "events": [{"description": "Zamknięta droga"}]},
+        "geometry": {"type": "Point", "coordinates": [19.0, 50.2]},
+    }
+    api.will(response({"incidents": [item]}))
+    result = await begin(hass)
+    schema = result["data_schema"]
+    assert schema is not None
+    default = {str(key): key for key in schema.schema}["selected_fields"].default()
+    assert default == ["list:$.incidents"]
+
+
+async def test_size_limit_can_be_raised_during_setup(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    api.will(response(BODY))
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"url": URL, "advanced": {"max_response_kib": 8192}}
+    )
+    result = await finish(hass, result)
+    assert result["result"].options["max_response_kib"] == 8192
 
 
 async def test_nothing_recognised(hass: HomeAssistant, hass_storage: Storage, api: FakeApi) -> None:
@@ -552,6 +592,40 @@ async def test_class_with_one_unit_fills_it_in(
     await step(hass, result, {"selected_fields": ["$.h"], **adv(device_class="humidity")})
     await hass.async_block_till_done()
     assert state_of(hass, "sensor.api_example_com_h").attributes["unit_of_measurement"] == "%"
+
+
+async def test_precision_needs_a_number(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, BODY, [])
+    await start(hass, entry)
+    result = await add(hass, entry, "sensor")
+    result = await step(
+        hass,
+        result,
+        {
+            "selected_fields": ["$.name"],
+            **adv(value_type="text", suggested_display_precision=2),
+        },
+    )
+    assert result["errors"] == {"base": "value_type_mismatch"}
+
+
+async def test_refresh_toggle_does_not_stay_on(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    api.will(response(BODY))
+    entry = make_entry(hass, hass_storage, BODY, [])
+    await start(hass, entry)
+    result = await add(hass, entry, "sensor")
+    result = await step(hass, result, adv(refresh_sample=True))
+    schema = result["data_schema"]
+    assert schema is not None
+    advanced = {str(key): value for key, value in schema.schema.items()}["advanced"].schema
+    suggested = {
+        str(marker): (marker.description or {}).get("suggested_value") for marker in advanced.schema
+    }
+    assert suggested["refresh_sample"] is None
 
 
 async def test_unit_does_not_fit(hass: HomeAssistant, hass_storage: Storage, api: FakeApi) -> None:

@@ -333,8 +333,9 @@ class RequestPolicy:
         self._clear_failures()
 
     def _clear_failures(self) -> None:
-        """End backoff."""
+        """End backoff, and any stop for refused credentials."""
         state = self.state
+        state.auth_stopped = False
         state.failures = 0
         state.rate_limit_streak = 0
         state.backoff_until = None

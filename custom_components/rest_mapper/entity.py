@@ -264,7 +264,7 @@ class ItemManager:
         wanted = self._wanted(coordinator, self._mapping)
         for key in tuple(self._entities):
             if key not in wanted:
-                self._remove(self._entities.pop(key))
+                self._remove(key, self._entities.pop(key))
         new = {
             key: self._factory(coordinator, self._mapping, key)
             for key in wanted
@@ -274,12 +274,17 @@ class ItemManager:
             self._entities.update(new)
             self._add(list(new.values()), config_subentry_id=self._mapping.subentry_id)
 
-    def _remove(self, entity: Entity) -> None:
-        """Remove an entity, with its registry entry if it has one."""
+    def _remove(self, key: str, entity: Entity) -> None:
+        """Remove an entity, with its registry entry if it has one.
+
+        A disabled entity was never added, so only the registry knows about it.
+        """
         hass = self._entry.runtime_data.hass
         registry = er.async_get(hass)
-        if entity.registry_entry is not None:
-            registry.async_remove(entity.registry_entry.entity_id)
+        unique_id = item_unique_id(self._mapping.subentry_id, key)
+        entity_id = registry.async_get_entity_id(self._domain, DOMAIN, unique_id)
+        if entity_id is not None:
+            registry.async_remove(entity_id)
         else:
             _ = self._entry.async_create_task(hass, entity.async_remove(force_remove=True))
 
