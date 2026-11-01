@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Final, final
+from typing import Final, TypeGuard, final
 
 from .paths import MISSING, JsonValue, Segment, format_path, parse_path, resolve
 
@@ -13,6 +13,7 @@ MAX_ENTRIES: Final = 1000
 MAX_LISTED_ITEMS: Final = 20
 MAX_EXAMPLE_LENGTH: Final = 60
 MAX_SAMPLED_ITEMS: Final = 50
+GEOMETRY_TYPES: Final = frozenset({"Point", "LineString"})
 
 
 class ScalarType(StrEnum):
@@ -22,6 +23,7 @@ class ScalarType(StrEnum):
     TEXT = "text"
     BOOLEAN = "boolean"
     NULL = "null"
+    GEOMETRY = "geometry"
 
 
 @final
@@ -69,6 +71,9 @@ class _Walker:
         """Visit one value."""
         if len(self.fields) >= MAX_ENTRIES or len(segments) > MAX_DEPTH:
             self.truncated = True
+        elif _is_geometry(value):
+            path = format_path(segments, relative=self.relative)
+            self.fields[path] = FlatField(path, ScalarType.GEOMETRY, str(value["type"]))
         elif isinstance(value, dict):
             for key, child in value.items():
                 self.walk(child, (*segments, key))
@@ -86,6 +91,15 @@ class _Walker:
             self.walk(item, (*segments, index))
         if len(items) > MAX_LISTED_ITEMS:
             self.truncated = True
+
+
+def _is_geometry(value: JsonValue) -> TypeGuard[dict[str, JsonValue]]:
+    """Tell whether a value is a GeoJSON geometry."""
+    return (
+        isinstance(value, dict)
+        and value.get("type") in GEOMETRY_TYPES
+        and isinstance(value.get("coordinates"), list)
+    )
 
 
 def flatten(data: JsonValue) -> Flattened:

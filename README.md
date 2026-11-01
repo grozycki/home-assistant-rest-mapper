@@ -21,11 +21,12 @@ The repositories are private for now, so nothing is in the Marketplace or on PyP
 
 **Settings → Devices & services → Add integration → REST Mapper.**
 
-1. Enter the URL and authentication. One test request is sent.
-2. Choose how often to poll. The next step shows what this uses per day and per month.
-3. Optionally tick the first fields to get sensors right away.
+1. Paste the address. A key in the address, such as `?key=abc`, is recognised and stored safely. If the service asks for a key, you are asked for it then.
+2. The next screen lists what was found, in plain words, with an example of each. Tick what you want, choose how often to ask, and enter a monthly limit if your API has one.
 
-The integration page then has buttons to add a sensor, binary sensor, tracker or collection. Each mapping can be changed or removed on its own, and that sends no request.
+That is all. Lists become map places, positions, calendars or sensors by what they hold. If a proposal is wrong, every path and limit can be changed under **Advanced options**.
+
+The integration page has buttons to add more later: choose fields by name, and they get a name and unit by themselves. A list is one screen with a ready proposal. A mapping that reads nothing is not saved by accident. Changes send no request.
 
 ### What a budget does
 
@@ -50,11 +51,11 @@ geo_location_sources:
 
 ## Examples
 
-**Silesia Alert sirens.** URL `https://silesiaalert.pl/dane5.json`, no authentication. Add a collection with list `$`, key `id`, type tracker, name `name`, latitude `lat`, longitude `lon`, and `currentStatus` as an attribute. This endpoint sends `ETag`, so unchanged polls are cheap.
+**Silesia Alert sirens.** URL `https://silesiaalert.pl/dane5.json`, no authentication. The list is found by itself, as 61 places on the map. Add `currentStatus` as an attribute under Advanced options if you want it. This endpoint sends `ETag`, so unchanged polls are cheap.
 
-**Aircraft from adsb.lol.** URL `https://api.adsb.lol/v2/lat/50.26/lon/19.02/dist/100`, no authentication. Add a collection with list `$.ac`, key `hex`, type position, name `flight`, latitude `lat`, longitude `lon`. Set removal after 1 response. This endpoint sends no validators.
+**Aircraft from adsb.lol.** URL `https://api.adsb.lol/v2/lat/50.26/lon/19.02/dist/100`, no authentication. The aircraft are proposed as short-lived positions. This endpoint sends no validators.
 
-**TomTom Incident Details.** Use a key in the `key` query parameter, and a budget matching your plan. Add a collection with list `$.incidents`, key `id`, type position, and `geometry` as the GeoJSON geometry. A line is shown at its middle point. This example was checked against a sample of the documented shape and not the live API.
+**TomTom Incident Details.** Use a key in the `key` query parameter, and a budget matching your plan. Paste the address with the key in it, and ask for `fields={incidents{type,geometry{type,coordinates},properties{id,iconCategory,startTime}}}`. Incidents are proposed as positions, and a line is shown at its middle point.
 
 ## Entities of each endpoint
 

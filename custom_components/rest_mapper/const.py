@@ -44,5 +44,7 @@ ATTR_LEFT_OUT: Final = "left_out"
 COLLECTION: Final = "collection"
 ROLE_NAME: Final = "name"
 MAX_KEY_LENGTH: Final = 64
+MAX_NAME_LENGTH: Final = 24
+SHORT_KEY_LENGTH: Final = 6
 MIN_RETENTION: Final = timedelta(hours=1)
 RETENTION_INTERVALS: Final = 4

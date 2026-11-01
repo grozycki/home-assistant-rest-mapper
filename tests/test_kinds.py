@@ -206,3 +206,17 @@ async def test_list_contract(
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert state_of(hass, entity_id).state == "unavailable"
+
+
+async def test_mapping_without_a_required_role_is_skipped(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    broken = ConfigSubentryData(
+        data=mapping_data("sensor", {}, {"value_type": "number"}, {}),
+        subentry_type="sensor",
+        title="Broken",
+        unique_id=None,
+    )
+    entry = make_entry(hass, hass_storage, BODY, [broken])
+    await start(hass, entry)
+    assert entry.state.name == "LOADED"

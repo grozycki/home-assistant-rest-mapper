@@ -17,6 +17,8 @@ from .const import (
     CONFIRMATION_WRITE_INTERVAL,
     DOMAIN,
     MAX_KEY_LENGTH,
+    MAX_NAME_LENGTH,
+    SHORT_KEY_LENGTH,
 )
 from .coordinator import EndpointCoordinator, RestMapperConfigEntry
 from .evaluation import is_collection
@@ -145,7 +147,12 @@ class ItemName(MappedEntity):
         """Return the item's name."""
         if self.key is None:
             return self.mapping.title
-        return self.current.name or self.key
+        if name := self.current.name:
+            return name
+        if len(self.key) > MAX_NAME_LENGTH:
+            digest = hashlib.sha256(self.key.encode()).hexdigest()
+            return f"{self.mapping.title} {digest[:SHORT_KEY_LENGTH]}"
+        return self.key
 
 
 type ItemFactory = Callable[[EndpointCoordinator, MappingConfig, str], Entity]

@@ -66,6 +66,8 @@ def parse_mapping(
         key_path = _optional_path(data.get("key_path"), relative=True)
     except PathError:
         return None
+    if not all(role.name in roles for role in definition.roles if role.required):
+        return None
     settings = _json(data.get("settings"))
     return MappingConfig(
         subentry_id,

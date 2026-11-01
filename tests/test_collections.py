@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from custom_components.rest_mapper.lib import ConnectFailedError, JsonValue
 from custom_components.rest_mapper.mappings import mapping_data
 from homeassistant.config_entries import SOURCE_USER, ConfigSubentryData, SubentryFlowResult
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, section
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
@@ -28,6 +28,7 @@ from conftest import (
 )
 
 if TYPE_CHECKING:
+    import probatio as vol
     import pytest
     from freezegun.api import FrozenDateTimeFactory
     from homeassistant.core import HomeAssistant
@@ -430,39 +431,136 @@ async def step(
     return await hass.config_entries.subentries.async_configure(result["flow_id"], data)
 
 
-async def test_flow_for_silesia_alert(
+def suggested(schema: vol.Schema) -> dict[str, object]:
+    """Read suggested values, as the frontend fills them in, sections included."""
+    answers: dict[str, object] = {}
+    for marker, value in schema.schema.items():
+        if isinstance(value, section):
+            answers[str(marker)] = suggested(value.schema)
+            continue
+        wanted = (marker.description or {}).get("suggested_value")
+        if wanted is not None:
+            answers[str(marker)] = wanted
+    return answers
+
+
+def form(result: SubentryFlowResult, **changes: object) -> dict[str, object]:
+    """Answer as the frontend does."""
+    schema = result["data_schema"]
+    assert schema is not None
+    return {**suggested(schema), **changes}
+
+
+async def test_proposal_for_silesia_alert(
     hass: HomeAssistant, hass_storage: Storage, api: FakeApi
 ) -> None:
-    body = fixture_json("silesia_alert.json")
+    entry = make_entry(hass, hass_storage, fixture_json("silesia_alert.json"), [])
+    await start(hass, entry)
+    result = await add(hass, entry)
+    assert result["step_id"] == "proposal"
+    assert "Items: 61, skipped: 0" in placeholders(result)["summary"]
+    assert "Miko" in placeholders(result)["summary"]
+    result = await step(hass, result, form(result))
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert state_of(hass, "device_tracker.api_mikolow").attributes["latitude"] == 50.168
+    assert api.calls == 0
+
+
+async def test_proposal_for_tomtom_needs_no_typed_path(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, fixture_json("tomtom_incidents.json"), [])
+    await start(hass, entry)
+    result = await add(hass, entry)
+    assert "map" in placeholders(result)["summary"].lower()
+    result = await step(hass, result, form(result))
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    places = hass.states.async_all("geo_location")
+    assert places
+    assert 49 < places[0].attributes["latitude"] < 51
+
+
+async def test_wrong_geometry_is_refused(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, fixture_json("tomtom_incidents.json"), [])
+    await start(hass, entry)
+    result = await add(hass, entry)
+    answers = form(result)
+    advanced = answers["advanced"]
+    assert isinstance(advanced, dict)
+    result = await step(
+        hass, result, {**answers, "advanced": {**advanced, "geometry": "geometry.type"}}
+    )
+    assert result["errors"] == {"base": "wrong_data"}
+    schema = result["data_schema"]
+    assert schema is not None
+    assert "save_anyway" not in {str(marker) for marker in schema.schema}
+
+
+async def test_choosing_among_lists(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    body: JsonValue = {"a": [{"id": 1, "v": 2}], "b": [{"id": 1, "lat": 50, "lon": 19}]}
     entry = make_entry(hass, hass_storage, body, [])
     await start(hass, entry)
     result = await add(hass, entry)
     assert result["step_id"] == "user"
-    options = form_options(result, "list_path")
-    assert options == ["$"]
-    result = await step(hass, result, {"list_path": "$"})
-    assert result["step_id"] == "key"
-    keys = form_options(result, "key_path")
-    assert keys[0] == "id"
-    result = await step(hass, result, {"key_path": "id"})
-    result = await step(hass, result, {"kind": "device_tracker"})
-    assert result["step_id"] == "item"
-    result = await step(
-        hass,
-        result,
-        {"title": "Sirens", "name": "name", "latitude": "lat", "longitude": "lon"},
-    )
-    assert result["step_id"] == "limits"
-    result = await step(hass, result, {"item_limit": 100, "removal_after": 2, "events": True})
-    assert result["step_id"] == "attributes"
-    result = await step(hass, result, {"attributes": [{"path": "currentStatus"}]})
-    assert result["step_id"] == "confirm"
-    assert placeholders(result)["preview"].startswith("Items: 61, skipped: 0")
-    result = await step(hass, result, {})
+    assert form_options(result, "list_path") == ["$.a", "$.b"]
+    result = await step(hass, result, {"list_path": "$.b"})
+    assert result["step_id"] == "proposal"
+    assert form(result)["kind"] == "geo_location"
+
+
+async def test_changing_the_type_follows(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, fixture_json("silesia_alert.json"), [])
+    await start(hass, entry)
+    result = await add(hass, entry)
+    result = await step(hass, result, form(result, kind="geo_location"))
+    assert result["step_id"] == "proposal"
+    assert form(result)["kind"] == "geo_location"
+    result = await step(hass, result, form(result))
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
-    assert state_of(hass, "sensor.sirens_item_count").state == "61"
-    assert api.calls == 0
+
+
+async def test_empty_list_can_be_saved_anyway(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, {"ac": []}, [])
+    await start(hass, entry)
+    result = await add(hass, entry)
+    assert result["step_id"] == "user"
+    result = await step(hass, result, {"list_path": "$.ac"})
+    assert result["step_id"] == "proposal"
+    result = await step(hass, result, {"title": "Planes", "kind": "geo_location"})
+    assert result["step_id"] == "proposal"
+    typed: dict[str, object] = {
+        "title": "Planes",
+        "kind": "geo_location",
+        "advanced": {"key_path": "hex", "latitude": "lat", "longitude": "lon"},
+    }
+    result = await step(hass, result, typed)
+    assert result["errors"] == {"base": "list_empty"}
+    result = await step(hass, result, {**typed, "save_anyway": True})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+
+async def test_calendar_proposal(hass: HomeAssistant, hass_storage: Storage, api: FakeApi) -> None:
+    body: JsonValue = {"items": [{"id": 1, "date": "2099-01-01", "title": "Paper"}]}
+    entry = make_entry(hass, hass_storage, body, [])
+    await start(hass, entry)
+    result = await add(hass, entry)
+    answers = form(result)
+    assert answers["kind"] == "calendar"
+    await step(hass, result, answers)
+    await hass.async_block_till_done()
+    assert state_of(hass, "calendar.items").attributes["message"] == "Paper"
 
 
 async def test_adding_a_platform_reloads_cleanly(
@@ -474,57 +572,24 @@ async def test_adding_a_platform_reloads_cleanly(
     entry = make_entry(hass, hass_storage, items(1), [])
     await start(hass, entry)
     result = await add(hass, entry)
-    result = await step(hass, result, {"list_path": "$.items"})
-    result = await step(hass, result, {"key_path": "id"})
-    result = await step(hass, result, {"kind": "geo_location"})
-    result = await step(hass, result, {"title": "P", "latitude": "lat", "longitude": "lon"})
-    result = await step(hass, result, {"item_limit": 5, "removal_after": 1, "events": True})
-    result = await step(hass, result, {"attributes": []})
-    result = await step(hass, result, {})
-    result = await step(hass, result, {})
+    await step(hass, result, form(result))
     await hass.async_block_till_done()
     assert "Ignored unload request" not in caplog.text
 
 
-async def test_flow_empty_list_takes_typed_paths(
+async def test_reconfigure_keeps_the_mapping(
     hass: HomeAssistant, hass_storage: Storage, api: FakeApi
 ) -> None:
-    entry = make_entry(hass, hass_storage, {"ac": []}, [])
+    entry = make_entry(hass, hass_storage, items(1), [SENSORS])
     await start(hass, entry)
-    result = await add(hass, entry)
-    result = await step(hass, result, {"list_path": "$.ac"})
-    result = await step(hass, result, {"key_path": "hex"})
-    result = await step(hass, result, {"kind": "geo_location"})
-    result = await step(hass, result, {"title": "Planes", "latitude": "lat", "longitude": "lon"})
-    result = await step(hass, result, {"item_limit": 50, "removal_after": 1, "events": False})
-    result = await step(hass, result, {"attributes": []})
-    assert "Items: 0" in placeholders(result)["preview"]
-    result = await step(hass, result, {})
-    assert result["step_id"] == "map_hint"
-    assert placeholders(result)["source"] == "rest_mapper_planes"
-    result = await step(hass, result, {})
-    assert result["type"] is FlowResultType.CREATE_ENTRY
+    subentry_id = next(iter(entry.subentries))
+    result = await entry.start_subentry_reconfigure_flow(hass, subentry_id)
+    assert result["step_id"] == "proposal"
+    result = await step(hass, result, form(result, title="Things"))
+    assert result["reason"] == "reconfigure_successful"
     await hass.async_block_till_done()
-
-
-async def test_flow_calendar_has_no_attributes(
-    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
-) -> None:
-    body: JsonValue = {"items": [{"id": 1, "date": "2030-01-01", "kind": "Paper"}]}
-    entry = make_entry(hass, hass_storage, body, [])
-    await start(hass, entry)
-    result = await add(hass, entry)
-    result = await step(hass, result, {"list_path": "$.items"})
-    result = await step(hass, result, {"key_path": "id"})
-    result = await step(hass, result, {"kind": "calendar"})
-    result = await step(hass, result, {"title": "Waste", "start": "date", "summary": "kind"})
-    assert result["step_id"] == "settings"
-    result = await step(hass, result, {"naive_local": True})
-    result = await step(hass, result, {"item_limit": 50, "removal_after": 2, "events": False})
-    assert result["step_id"] == "confirm"
-    await step(hass, result, {})
-    await hass.async_block_till_done()
-    assert state_of(hass, "calendar.waste").attributes["message"] == "Paper"
+    assert state_of(hass, "sensor.things_1").state == "10"
+    assert next(iter(entry.subentries.values())).data["roles"] == {"value": "v"}
 
 
 async def test_everything_survives_a_restart(
@@ -590,3 +655,36 @@ async def test_changing_the_kind_removes_old_items(
     assert registry.async_get("sensor.things_1") is None
     assert registry.async_get("event.things_new_item") is None
     assert state_of(hass, "binary_sensor.things_1").state == "on"
+
+
+async def test_long_key_gives_a_short_name(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    key = "TTI-57f1902a-7e9d-4930-8559-5d208b53eb1d-TTR40831677540005001"
+    body: JsonValue = {"items": [{"id": key, "v": 5}]}
+    await start(hass, make_entry(hass, hass_storage, body, [SENSORS]))
+    states = [item for item in hass.states.async_all("sensor") if item.state == "5"]
+    assert len(states[0].name) < 40
+
+
+async def test_list_with_nothing_to_show_is_not_proposed_for_saving(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, {"items": [{"id": 1}]}, [])
+    await start(hass, entry)
+    result = await add(hass, entry)
+    result = await step(hass, result, form(result))
+    assert result["errors"] == {"base": "choose_field"}
+
+
+async def test_section_without_answers_keeps_the_proposal(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, items(1), [])
+    await start(hass, entry)
+    result = await add(hass, entry)
+    answers = form(result)
+    answers.pop("advanced")
+    result = await step(hass, result, answers)
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()

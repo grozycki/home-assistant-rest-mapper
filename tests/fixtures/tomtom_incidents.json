@@ -1,0 +1,75 @@
+{
+ "incidents": [
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "TTI-57f1902a-7e9d-4930-8559-5d208b53eb1d-TTR40831677540005001",
+    "iconCategory": 9,
+    "startTime": "2026-10-26T19:01:30Z"
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      18.9012989027,
+      50.2795878065
+     ],
+     [
+      18.9018742365,
+      50.2795650418
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "TTI-57f1902a-7e9d-4930-8559-5d208b53eb1d-TTR40828792260022000",
+    "iconCategory": 8,
+    "startTime": "2026-10-31T11:32:30Z"
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      18.9281209928,
+      50.2918106373
+     ],
+     [
+      18.9274759216,
+      50.2910328155
+     ],
+     [
+      18.9270856601,
+      50.2905607611
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "TTI-57f1902a-7e9d-4930-8559-5d208b53eb1d-TTR40828792188022000",
+    "iconCategory": 8,
+    "startTime": "2026-10-31T10:46:30Z"
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      18.9270856601,
+      50.2905607611
+     ],
+     [
+      18.9274759216,
+      50.2910328155
+     ],
+     [
+      18.9281209928,
+      50.2918106373
+     ]
+    ]
+   }
+  }
+ ]
+}

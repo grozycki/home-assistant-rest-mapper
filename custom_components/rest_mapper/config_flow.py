@@ -11,6 +11,7 @@ import random
 import re
 import secrets
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, Final, final, override
 
 import probatio as vol
@@ -26,12 +27,14 @@ from homeassistant.config_entries import (
     ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
+    ConfigSubentry,
     ConfigSubentryData,
     ConfigSubentryFlow,
     OptionsFlow,
     SubentryFlowResult,
 )
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import section
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
@@ -80,12 +83,9 @@ from .const import (
     ROLE_NAME,
 )
 from .endpoint import build_policy_config, build_spec
-from .evaluation import read_value
-from .kinds import KINDS, KindDefinition, MappingConfig, Shape
+from .kinds import KINDS, KindDefinition, Shape
 from .lib import (
-    DEFAULT_ITEM_LIMIT,
     DEFAULT_MAX_BYTES,
-    DEFAULT_REMOVAL_AFTER,
     DEFAULT_RESERVE_PERCENT,
     DEFAULT_TIMEOUT,
     MAX_ITEM_LIMIT,
@@ -96,33 +96,49 @@ from .lib import (
     BudgetPeriod,
     ClientFailedError,
     CollectionCandidate,
+    CollectionSuggestion,
     ConnectFailedError,
+    Failure,
     Fetched,
     FetchError,
+    FieldSuggestion,
     FlatField,
     Flattened,
     FormatError,
     JsonValue,
-    Position,
     RateLimitedError,
     RedirectError,
     RequestPolicy,
+    ScalarType,
     ServerFailedError,
     SizeExceededError,
     UpdateMode,
     ValueType,
     decode_json,
     fetch,
+    find_url_key,
     flatten,
+    label_for,
+    name_for,
     parse_path,
-    read_attributes,
-    read_items,
+    suggest_collection,
+    suggest_field,
 )
 from .lib import PathError as _PathError
 from .mappings import mapping_data, parse_mapping, source_for
+from .proposals import (
+    Check,
+    Proposal,
+    build_proposals,
+    check_collection,
+    check_single,
+    collection_settings,
+    collection_title,
+    field_data,
+    roles_for,
+)
 from .store import StoredEndpoint, async_load, endpoint_store
-from .suggest import guess_sensor, last_key, settings_for_field, value_type_of
-from .values import ValueRead
+from .texts import Texts, async_load_texts
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -132,7 +148,8 @@ if TYPE_CHECKING:
 ATTRIBUTES: Final = "attributes"
 TITLE: Final = "title"
 REFRESH: Final = "refresh_sample"
-BACK: Final = "back"
+ADVANCED: Final = "advanced"
+SAVE_ANYWAY: Final = "save_anyway"
 LIST_PATH: Final = "list_path"
 KEY_PATH: Final = "key_path"
 KIND: Final = "kind"
@@ -161,7 +178,10 @@ _RESERVED_NAMES: Final = frozenset(
         "supported_features",
     }
 )
-_PREVIEW_ITEMS: Final = 3
+_PRESET: Final = "polling"
+_PRESETS: Final = (300, 900, 3600, 86400)
+_DEFAULT_PRESET: Final = "900"
+_ON_DEMAND: Final = "on_demand"
 _TIME_CLASSES: Final = (SensorDeviceClass.TIMESTAMP, SensorDeviceClass.DATE)
 
 
@@ -184,20 +204,6 @@ def _choice(values: Sequence[str], translation_key: str) -> SelectSelector:
         SelectSelectorConfig(
             options=list(values),
             translation_key=translation_key,
-            mode=SelectSelectorMode.DROPDOWN,
-        )
-    )
-
-
-def _path_field(fields: Sequence[FlatField]) -> SelectSelector:
-    """Return a searchable list of paths that also takes typed text."""
-    return SelectSelector(
-        SelectSelectorConfig(
-            options=[
-                SelectOptionDict(value=item.path, label=f"{item.path} = {item.example}")
-                for item in fields
-            ],
-            custom_value=True,
             mode=SelectSelectorMode.DROPDOWN,
         )
     )
@@ -315,24 +321,64 @@ def _polling_schema() -> dict[vol.Marker, Any]:
     }
 
 
-def _cost_placeholders(options: Mapping[str, Any]) -> dict[str, str]:
-    """Describe what a polling choice uses."""
-    if options.get(CONF_MODE) == UpdateMode.ON_DEMAND:
-        return {"per_day": "0", "per_month": "0", "budget_note": "-"}
-    per_day = _DAY_SECONDS / float(options[CONF_INTERVAL])
-    per_month = per_day * _MONTH_DAYS
-    config = build_policy_config(options)
-    spacing = RequestPolicy(config, dt_util.utcnow, random.random).spacing()
-    slower = spacing > config.interval
-    return {
-        "per_day": f"{per_day:.0f}",
-        "per_month": f"{per_month:.0f}",
-        "budget_note": f"{spacing.total_seconds() / 60:.0f}" if slower else "-",
-    }
+def _preset_cost(interval: int) -> int:
+    """Return requests a month for an interval."""
+    return _DAY_SECONDS * _MONTH_DAYS // interval
+
+
+def _preset_field(texts: Texts) -> SelectSelector:
+    """Return the polling choice, with what each option costs."""
+    options = [
+        SelectOptionDict(
+            value=str(interval),
+            label=texts(f"poll_{interval}", requests=_preset_cost(interval)),
+        )
+        for interval in _PRESETS
+    ]
+    options.append(SelectOptionDict(value=_ON_DEMAND, label=texts("poll_on_demand")))
+    return SelectSelector(SelectSelectorConfig(options=options, mode=SelectSelectorMode.LIST))
+
+
+def _polling_options(user_input: Mapping[str, Any]) -> dict[str, Any]:
+    """Turn the found screen's answers into options."""
+    advanced = user_input.get(ADVANCED, {})
+    preset = user_input.get(_PRESET, _DEFAULT_PRESET)
+    custom = advanced.get(CONF_INTERVAL)
+    on_demand = preset == _ON_DEMAND
+    options = _options_defaults(
+        {
+            CONF_MODE: UpdateMode.ON_DEMAND.value if on_demand else UpdateMode.AUTOMATIC.value,
+            CONF_INTERVAL: custom or (int(_DEFAULT_PRESET) if on_demand else int(preset)),
+            CONF_BUDGET_LIMIT: user_input.get(CONF_BUDGET_LIMIT) or 0,
+            CONF_BUDGET_PERIOD: advanced.get(CONF_BUDGET_PERIOD, BudgetPeriod.MONTH.value),
+        }
+    )
+    options[CONF_RETENTION] = _suggested_retention(options)
+    return options
+
+
+def _suggest_lists(
+    body: JsonValue, found: Flattened
+) -> list[tuple[CollectionCandidate, CollectionSuggestion]]:
+    """Propose a mapping for each list. This runs in the executor."""
+    now = dt_util.utcnow()
+    zone = dt_util.get_default_time_zone()
+    return [
+        (candidate, suggest_collection(body, candidate, now, zone))
+        for candidate in found.collections
+    ]
+
+
+def _list_data(
+    body: JsonValue,
+) -> tuple[Flattened, list[tuple[CollectionCandidate, CollectionSuggestion]]]:
+    """List a body with a proposal for each list. This runs in the executor."""
+    found = flatten(body)
+    return found, _suggest_lists(body, found)
 
 
 class RestMapperConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Adds an endpoint."""
+    """Adds an endpoint: a URL, then a screen of what was found."""
 
     VERSION = 1
 
@@ -341,6 +387,7 @@ class RestMapperConfigFlow(ConfigFlow, domain=DOMAIN):
         self._data: dict[str, Any] = {}
         self._options: dict[str, Any] = {}
         self._result: _TestResult | None = None
+        self._confirmed_insecure = False
 
     @staticmethod
     @callback
@@ -364,63 +411,104 @@ class RestMapperConfigFlow(ConfigFlow, domain=DOMAIN):
         types[COLLECTION] = CollectionFlow
         return types
 
-    @override
-    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Ask for the URL and the type of authentication."""
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            self._data = dict(user_input)
-            error = _validate_url(user_input[CONF_URL])
-            if error is not None:
-                errors[CONF_URL] = error
-            elif user_input[CONF_AUTH_TYPE] == AUTH_NONE:
-                return await self._async_test()
-            else:
-                return await self.async_step_auth()
+    def _user_form(self, errors: dict[str, str]) -> ConfigFlowResult:
+        """Ask for the URL."""
+        advanced = vol.Schema(
+            {
+                vol.Optional(CONF_AUTH_TYPE): _choice(
+                    (AUTH_NONE, AUTH_BEARER, AUTH_HEADER, AUTH_QUERY), "auth_type"
+                )
+            }
+        )
         schema = vol.Schema(
             {
                 vol.Required(CONF_URL): _text_field(),
-                vol.Required(CONF_AUTH_TYPE, default=AUTH_NONE): _choice(
-                    (AUTH_NONE, AUTH_BEARER, AUTH_HEADER, AUTH_QUERY), "auth_type"
-                ),
+                vol.Optional(ADVANCED): section(advanced, {"collapsed": True}),
             }
         )
         return self.async_show_form(
             step_id="user",
-            data_schema=self.add_suggested_values_to_schema(schema, self._data),
+            data_schema=self.add_suggested_values_to_schema(
+                schema, {CONF_URL: self._data.get(CONF_URL, "")}
+            ),
             errors=errors,
         )
 
-    def _auth_schema(self, auth_type: str) -> vol.Schema:
-        """Return credential fields."""
-        fields: dict[vol.Marker, Any] = {}
-        if auth_type in (AUTH_HEADER, AUTH_QUERY):
-            fields[vol.Required(CONF_AUTH_NAME)] = _text_field()
-        fields[vol.Required(CONF_AUTH_VALUE)] = _text_field(password=True)
-        return vol.Schema(fields)
+    @override
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Take a URL, moving any key in it to the credentials."""
+        if user_input is None:
+            return self._user_form({})
+        url = str(user_input[CONF_URL]).strip()
+        self._data = {CONF_URL: url, CONF_AUTH_TYPE: AUTH_NONE}
+        self._confirmed_insecure = False
+        error = _validate_url(url)
+        if error is not None:
+            return self._user_form({CONF_URL: error})
+        pasted = find_url_key(url)
+        if pasted is not None:
+            self._data = {
+                CONF_URL: pasted.url,
+                CONF_AUTH_TYPE: AUTH_QUERY,
+                CONF_AUTH_NAME: pasted.name,
+                CONF_AUTH_VALUE: pasted.value,
+            }
+        elif user_input.get(ADVANCED, {}).get(CONF_AUTH_TYPE, AUTH_NONE) != AUTH_NONE:
+            self._data[CONF_AUTH_TYPE] = user_input[ADVANCED][CONF_AUTH_TYPE]
+            return await self.async_step_auth()
+        return await self._async_test()
 
     async def async_step_auth(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Ask for credentials."""
+        """Ask for credentials, only when they are needed."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            self._data.update(user_input)
-            if _is_public_host(URL(self._data[CONF_URL]).host) and self._is_plain_http():
-                return await self.async_step_insecure()
-            return await self._async_test()
-        return self.async_show_form(
-            step_id="auth", data_schema=self._auth_schema(self._data[CONF_AUTH_TYPE])
-        )
+            auth_type = user_input[CONF_AUTH_TYPE]
+            name = str(user_input.get(CONF_AUTH_NAME, "")).strip()
+            if auth_type != AUTH_BEARER and not name:
+                errors[CONF_AUTH_NAME] = "name_required"
+            else:
+                self._data.update(
+                    {
+                        CONF_AUTH_TYPE: auth_type,
+                        CONF_AUTH_NAME: name,
+                        CONF_AUTH_VALUE: user_input[CONF_AUTH_VALUE],
+                    }
+                )
+                return await self._async_test()
+        return self._auth_form(errors)
 
-    def _is_plain_http(self) -> bool:
-        """Tell whether credentials would travel unencrypted."""
-        return URL(self._data[CONF_URL]).scheme == "http"
+    def _auth_form(self, errors: dict[str, str]) -> ConfigFlowResult:
+        """Ask for credentials."""
+        current = self._data.get(CONF_AUTH_TYPE, AUTH_NONE)
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_AUTH_TYPE, default=AUTH_BEARER if current == AUTH_NONE else current
+                ): _choice((AUTH_BEARER, AUTH_HEADER, AUTH_QUERY), "auth_type"),
+                vol.Required(CONF_AUTH_VALUE): _text_field(password=True),
+                vol.Optional(CONF_AUTH_NAME): _text_field(),
+            }
+        )
+        return self.async_show_form(step_id="auth", data_schema=schema, errors=errors)
 
     async def async_step_insecure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Warn about credentials on plain HTTP."""
         if user_input is not None:
+            self._confirmed_insecure = True
             return await self._async_test()
         return self.async_show_form(step_id="insecure", data_schema=vol.Schema({}))
+
+    def _needs_insecure_warning(self) -> bool:
+        """Tell whether credentials would cross the internet unencrypted."""
+        url = URL(self._data[CONF_URL])
+        return (
+            self._data.get(CONF_AUTH_TYPE) != AUTH_NONE
+            and not self._confirmed_insecure
+            and url.scheme == "http"
+            and _is_public_host(url.host)
+        )
 
     async def _async_run_test(self, data: Mapping[str, Any]) -> str | None:
         """Send the test request, and return an error key."""
@@ -438,72 +526,79 @@ class RestMapperConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def _async_test(self) -> ConfigFlowResult:
         """Test a new endpoint."""
+        if self._needs_insecure_warning():
+            return await self.async_step_insecure()
         await self.async_set_unique_id(_unique_id(self._data))
         self._abort_if_unique_id_configured()
         error = await self._async_run_test(self._data)
+        if error == "invalid_auth":
+            refused = self._data[CONF_AUTH_TYPE] != AUTH_NONE
+            return self._auth_form({"base": error} if refused else {})
         if error is not None:
-            return self.async_show_form(
-                step_id="user",
-                data_schema=vol.Schema(
-                    {
-                        vol.Required(CONF_URL, default=self._data[CONF_URL]): _text_field(),
-                        vol.Required(CONF_AUTH_TYPE, default=self._data[CONF_AUTH_TYPE]): _choice(
-                            (AUTH_NONE, AUTH_BEARER, AUTH_HEADER, AUTH_QUERY), "auth_type"
-                        ),
-                    }
-                ),
-                errors={"base": error},
-            )
-        return await self.async_step_polling()
+            return self._user_form({"base": error})
+        return await self.async_step_found()
 
-    async def async_step_polling(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Ask how often to poll."""
-        if user_input is not None:
-            self._options = _options_defaults(user_input)
-            self._options[CONF_RETENTION] = _suggested_retention(self._options)
-            return await self.async_step_cost()
-        schema = self.add_suggested_values_to_schema(
-            vol.Schema(_polling_schema()), _options_defaults(self._options)
-        )
-        return self.async_show_form(step_id="polling", data_schema=schema)
-
-    async def async_step_cost(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Show what the polling choice uses."""
-        if user_input is not None:
-            return await self.async_step_fields()
-        return self.async_show_form(
-            step_id="cost",
-            data_schema=vol.Schema({}),
-            description_placeholders=_cost_placeholders(self._options),
-        )
-
-    async def async_step_fields(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Offer the found fields as first mappings."""
+    async def async_step_found(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Show what the response holds, and how often to ask for it."""
         result = self._result
-        assert result is not None
+        if result is None:
+            return self.async_abort(reason="unknown")
+        texts = await async_load_texts(self.hass)
+        host = URL(self._data[CONF_URL]).host or "REST Mapper"
+        lists = await self.hass.async_add_executor_job(_suggest_lists, result.body, result.found)
+        proposals = build_proposals(lists, result.found.fields, host.partition(".")[0], texts)
         if user_input is not None:
-            return await self._async_finish(result, user_input.get(SELECTED, []))
-        options = [
-            SelectOptionDict(value=item.path, label=f"{item.path} = {item.example}")
-            for item in result.found.fields
-        ]
-        schema = vol.Schema(
+            chosen = set(user_input.get(SELECTED, []))
+            return await self._async_finish(
+                result,
+                [item for item in proposals if item.identifier in chosen],
+                _polling_options(user_input),
+            )
+        advanced = vol.Schema(
             {
-                vol.Optional(SELECTED, default=[]): SelectSelector(
-                    SelectSelectorConfig(
-                        options=options, multiple=True, mode=SelectSelectorMode.DROPDOWN
-                    )
-                )
+                vol.Optional(CONF_INTERVAL): _number_field(
+                    MIN_INTERVAL.total_seconds(), _MAX_INTERVAL_SECONDS
+                ),
+                vol.Optional(CONF_BUDGET_PERIOD): _choice(tuple(BudgetPeriod), "budget_period"),
             }
         )
-        return self.async_show_form(step_id="fields", data_schema=schema)
+        fields: dict[vol.Marker, Any] = {}
+        if proposals:
+            fields[
+                vol.Optional(
+                    SELECTED,
+                    default=[item.identifier for item in proposals if item.preselected],
+                )
+            ] = SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value=item.identifier, label=item.label)
+                        for item in proposals
+                    ],
+                    multiple=True,
+                    mode=SelectSelectorMode.LIST,
+                )
+            )
+        fields[vol.Required(_PRESET, default=_DEFAULT_PRESET)] = _preset_field(texts)
+        fields[vol.Optional(CONF_BUDGET_LIMIT)] = _number_field(0, 100_000_000)
+        fields[vol.Optional(ADVANCED)] = section(advanced, {"collapsed": True})
+        return self.async_show_form(
+            step_id="found",
+            data_schema=vol.Schema(fields),
+            description_placeholders={
+                "note": "" if proposals else texts("found_nothing"),
+            },
+        )
 
-    async def _async_finish(self, result: _TestResult, selected: Sequence[str]) -> ConfigFlowResult:
+    async def _async_finish(
+        self,
+        result: _TestResult,
+        chosen: Sequence[Proposal],
+        options: dict[str, Any],
+    ) -> ConfigFlowResult:
         """Store the sample, and create the entry with its mappings."""
         storage_id = secrets.token_hex(8)
-        policy = RequestPolicy(build_policy_config(self._options), dt_util.utcnow, random.random)
+        policy = RequestPolicy(build_policy_config(options), dt_util.utcnow, random.random)
         policy.record_sent()
         policy.record_fetched(result.fetched.etag, result.fetched.last_modified)
         stored = StoredEndpoint(
@@ -513,14 +608,29 @@ class RestMapperConfigFlow(ConfigFlow, domain=DOMAIN):
             confirmed_at=dt_util.utcnow(),
         )
         await endpoint_store(self.hass, storage_id).async_save(stored.to_data())
-        fields = {item.path: item for item in result.found.fields}
-        subentries = [_bulk_subentry(fields[path]) for path in selected if path in fields]
+        subentries = [
+            ConfigSubentryData(
+                data=item.data,
+                subentry_type=item.subentry_type,
+                title=item.title,
+                unique_id=None,
+            )
+            for item in chosen
+        ]
         return self.async_create_entry(
             title=URL(self._data[CONF_URL]).host or "REST Mapper",
             data={**self._data, CONF_STORAGE_ID: storage_id},
-            options=self._options,
+            options=options,
             subentries=subentries,
         )
+
+    def _auth_schema(self, auth_type: str) -> vol.Schema:
+        """Return credential fields."""
+        fields: dict[vol.Marker, Any] = {}
+        if auth_type in (AUTH_HEADER, AUTH_QUERY):
+            fields[vol.Required(CONF_AUTH_NAME)] = _text_field()
+        fields[vol.Required(CONF_AUTH_VALUE)] = _text_field(password=True)
+        return vol.Schema(fields)
 
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
         """Start asking for new credentials."""
@@ -551,7 +661,7 @@ class RestMapperConfigFlow(ConfigFlow, domain=DOMAIN):
         entry = self._get_reconfigure_entry()
         errors: dict[str, str] = {}
         if user_input is not None:
-            data = {**entry.data, **user_input}
+            data = {**entry.data, **{k: v for k, v in user_input.items() if v}}
             error = _validate_url(user_input[CONF_URL])
             other = self.hass.config_entries.async_entry_for_domain_unique_id(
                 DOMAIN, _unique_id(data)
@@ -569,7 +679,8 @@ class RestMapperConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = error
         fields: dict[vol.Marker, Any] = {vol.Required(CONF_URL): _text_field()}
         if entry.data[CONF_AUTH_TYPE] != AUTH_NONE:
-            fields.update(self._auth_schema(entry.data[CONF_AUTH_TYPE]).schema)
+            # Left empty, the stored key stays, so changing an address needs no key.
+            fields[vol.Optional(CONF_AUTH_VALUE)] = _text_field(password=True)
         schema = self.add_suggested_values_to_schema(
             vol.Schema(fields), {CONF_URL: entry.data[CONF_URL]}
         )
@@ -578,7 +689,8 @@ class RestMapperConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _async_apply(self, entry: ConfigEntry, data: dict[str, Any]) -> None:
         """Replace the sample and settings. The update listener then reloads."""
         result = self._result
-        assert result is not None
+        if result is None:
+            return
         if entry.state is ConfigEntryState.LOADED:
             coordinator: EndpointCoordinator = entry.runtime_data
             await coordinator.async_replace_sample(result.fetched, credentials_changed=True)
@@ -596,21 +708,6 @@ class RestMapperConfigFlow(ConfigFlow, domain=DOMAIN):
             stored.confirmed_at = dt_util.utcnow()
             await store.async_save(stored.to_data())
         self.hass.config_entries.async_update_entry(entry, data=data, unique_id=_unique_id(data))
-
-
-def _bulk_subentry(field: FlatField) -> ConfigSubentryData:
-    """Build a mapping for a field picked during setup."""
-    settings = settings_for_field(field)
-    is_boolean = settings["value_type"] == ValueType.BOOLEAN
-    kind = "binary_sensor" if is_boolean else "sensor"
-    if is_boolean:
-        settings = {}
-    return ConfigSubentryData(
-        data=mapping_data(kind, {"value": field.path}, settings, {}),
-        subentry_type=kind,
-        title=last_key(field.path).replace("_", " ").capitalize(),
-        unique_id=None,
-    )
 
 
 class RestMapperOptionsFlow(OptionsFlow):
@@ -646,7 +743,9 @@ def _attribute_field(paths: Sequence[FlatField]) -> ObjectSelector:
                     required=True,
                     selector={
                         "select": {
-                            "options": [item.path for item in paths],
+                            "options": [
+                                {"value": item.path, "label": _label(item)} for item in paths
+                            ],
                             "custom_value": True,
                         }
                     },
@@ -654,6 +753,11 @@ def _attribute_field(paths: Sequence[FlatField]) -> ObjectSelector:
             },
         )
     )
+
+
+def _label(item: FlatField) -> str:
+    """Show a field by a readable name and a real example."""
+    return f"{label_for(item.path)}: {item.example}"
 
 
 def _read_attribute_rows(
@@ -669,7 +773,7 @@ def _read_attribute_rows(
             parse_path(path, relative=relative)
         except _PathError:
             return {}, "invalid_path"
-        name = row.get("name", "").strip() or slugify(last_key(path, relative=relative))
+        name = row.get("name", "").strip() or slugify(name_for(path))
         if not _NAME_PATTERN.fullmatch(name):
             return {}, "invalid_attribute_name"
         if name in _RESERVED_NAMES:
@@ -693,14 +797,14 @@ def _settings_schema(kind: str) -> dict[vol.Marker, Any]:
     """Return a kind's settings fields."""
     if kind == "sensor":
         return {
-            vol.Required("value_type"): _choice(tuple(ValueType), "value_type"),
+            vol.Optional("value_type"): _choice(tuple(ValueType), "value_type"),
             vol.Optional("device_class"): _plain_choice(
                 tuple(item for item in SensorDeviceClass if item is not SensorDeviceClass.ENUM)
             ),
             vol.Optional("unit_of_measurement"): _text_field(),
             vol.Optional("state_class"): _plain_choice(tuple(SensorStateClass)),
             vol.Optional("suggested_display_precision"): _number_field(0, 9),
-            vol.Optional("naive_local", default=False): BooleanSelector(),
+            vol.Optional("naive_local"): BooleanSelector(),
         }
     if kind == "binary_sensor":
         return {
@@ -709,7 +813,7 @@ def _settings_schema(kind: str) -> dict[vol.Marker, Any]:
             vol.Optional("off_values"): _text_field(),
         }
     if kind == "calendar":
-        return {vol.Optional("naive_local", default=False): BooleanSelector()}
+        return {vol.Optional("naive_local"): BooleanSelector()}
     return {}
 
 
@@ -749,21 +853,15 @@ def _clean_settings(settings: Mapping[str, Any]) -> dict[str, JsonValue]:
     return clean
 
 
-def _describe(value: object, mapping: MappingConfig) -> str:
-    """Write a read value for the confirmation step."""
-    if isinstance(value, Position):
-        return f"{value.latitude}, {value.longitude}"
-    unit = mapping.settings.get("unit_of_measurement")
-    return f"{value} {unit}" if isinstance(unit, str) and unit else str(value)
-
-
-def _attribute_notes(document: JsonValue, mapping: MappingConfig) -> list[str]:
-    """List attributes that cannot be read from a document."""
-    reads = read_attributes(document, mapping.attributes)
-    missing = set(mapping.attributes) - set(reads.values) - set(reads.too_large)
-    notes = [f"Attribute missing: {name}" for name in sorted(missing)]
-    notes.extend(f"Attribute too large: {name}" for name in reads.too_large)
-    return notes
+def _failure_error(check: Check) -> tuple[str | None, bool]:
+    """Return an error key, and whether saving anyway may be offered."""
+    if check.empty:
+        return "list_empty", True
+    if check.failure is None:
+        return None, False
+    if check.failure is Failure.TYPE_MISMATCH:
+        return "wrong_data", False
+    return "nothing_read", True
 
 
 class _MappingFlow(ConfigSubentryFlow):
@@ -779,6 +877,12 @@ class _MappingFlow(ConfigSubentryFlow):
         self._list_path: str | None = None
         self._key_path: str | None = None
         self._listed = Flattened((), (), False)
+        self._suggestions: list[tuple[CollectionCandidate, CollectionSuggestion]] = []
+        self._offer_save_anyway = False
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        """Start with the one screen of each flow."""
+        raise NotImplementedError
 
     def _coordinator(self) -> EndpointCoordinator | None:
         """Return the endpoint's coordinator, if it is running."""
@@ -792,11 +896,9 @@ class _MappingFlow(ConfigSubentryFlow):
         """List the stored data, away from the event loop."""
         coordinator = self._coordinator()
         if coordinator is not None and coordinator.stored.has_body:
-            self._listed = await self.hass.async_add_executor_job(flatten, coordinator.stored.body)
-
-    def _found(self) -> Flattened:
-        """Return what `_async_list_data` found."""
-        return self._listed
+            self._listed, self._suggestions = await self.hass.async_add_executor_job(
+                _list_data, coordinator.stored.body
+            )
 
     async def _async_refresh(self, errors: dict[str, str]) -> dict[str, str]:
         """Fetch fresh data, and return placeholders for any refusal."""
@@ -816,21 +918,6 @@ class _MappingFlow(ConfigSubentryFlow):
             return {"time": "?"}
         return {}
 
-    @property
-    def _relative(self) -> bool:
-        """Tell whether role paths are relative to a list item."""
-        return self._list_path is not None
-
-    def _item_fields(self) -> Sequence[FlatField]:
-        """Return the paths offered for roles and attributes."""
-        found = self._found()
-        if not self._relative:
-            return found.fields
-        for candidate in found.collections:
-            if candidate.path == self._list_path:
-                return candidate.item_fields
-        return ()
-
     def _load_subentry(self) -> None:
         """Fill the flow from the subentry being changed."""
         subentry = self._get_reconfigure_subentry()
@@ -843,15 +930,11 @@ class _MappingFlow(ConfigSubentryFlow):
         self._list_path = data.get(LIST_PATH)
         self._key_path = data.get(KEY_PATH)
 
-    def _mapping(self) -> MappingConfig | None:
-        """Build the mapping as it stands."""
-        return parse_mapping("preview", self._title, self._mapping_type(), self._data())
-
     def _mapping_type(self) -> str:
         """Return the subentry type."""
-        return COLLECTION if self._relative else self._kind
+        return COLLECTION if self._list_path is not None else self._kind
 
-    def _data(self) -> dict[str, JsonValue]:
+    def _stored_data(self) -> dict[str, JsonValue]:
         """Build stored data."""
         return mapping_data(
             self._kind,
@@ -862,80 +945,13 @@ class _MappingFlow(ConfigSubentryFlow):
             key_path=self._key_path,
         )
 
-    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
-        """Start with choosing paths."""
-        raise NotImplementedError
+    def _attribute_rows(self) -> list[dict[str, str]]:
+        """Show stored attributes in the editor."""
+        return [{"name": name, "path": path} for name, path in self._attributes.items()]
 
-    async def async_step_settings(
-        self, user_input: dict[str, Any] | None = None
-    ) -> SubentryFlowResult:
-        """Ask for the kind's settings."""
-        fields = _settings_schema(self._kind)
-        if not fields:
-            return await self._async_after_settings()
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            error = _validate_settings(user_input) if self._kind == "sensor" else None
-            kept: dict[str, JsonValue] = {
-                key: self._settings[key]
-                for key in (ITEM_LIMIT, REMOVAL_AFTER, EVENTS, "source")
-                if key in self._settings
-            }
-            self._settings = {**kept, **_clean_settings(user_input)}
-            if error is None:
-                return await self._async_after_settings()
-            errors["base"] = error
-        schema = self.add_suggested_values_to_schema(vol.Schema(fields), self._settings)
-        return self.async_show_form(step_id="settings", data_schema=schema, errors=errors)
-
-    async def _async_after_settings(self) -> SubentryFlowResult:
-        """Move on after settings."""
-        return await self.async_step_attributes()
-
-    async def async_step_attributes(
-        self, user_input: dict[str, Any] | None = None
-    ) -> SubentryFlowResult:
-        """Ask for extra attributes."""
-        if not KINDS[self._kind].has_attributes:
-            return await self.async_step_confirm()
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            attributes, error = _read_attribute_rows(
-                user_input.get(ATTRIBUTES, []), relative=self._relative
-            )
-            if error is None:
-                self._attributes = attributes
-                return await self.async_step_confirm()
-            errors["base"] = error
-        rows = [{"name": name, "path": path} for name, path in self._attributes.items()]
-        schema = vol.Schema(
-            {vol.Optional(ATTRIBUTES, default=rows): _attribute_field(self._item_fields())}
-        )
-        return self.async_show_form(step_id="attributes", data_schema=schema, errors=errors)
-
-    def _preview(self) -> str:
-        """Describe what the mapping reads from stored data."""
-        raise NotImplementedError
-
-    async def async_step_confirm(
-        self, user_input: dict[str, Any] | None = None
-    ) -> SubentryFlowResult:
-        """Show what the mapping reads, and save it."""
-        if user_input is not None:
-            if user_input.get(BACK):
-                return await self.async_step_user()
-            return await self._async_save()
-        return self.async_show_form(
-            step_id="confirm",
-            data_schema=vol.Schema({vol.Optional(BACK, default=False): BooleanSelector()}),
-            description_placeholders={
-                "preview": await self.hass.async_add_executor_job(self._preview)
-            },
-        )
-
-    async def _async_save(self) -> SubentryFlowResult:
+    def _save(self) -> SubentryFlowResult:
         """Create or update the subentry. The update listener then reloads."""
-        data = self._data()
+        data = self._stored_data()
         if self.source == "reconfigure":
             return self.async_update_and_abort(
                 self._get_entry(),
@@ -945,9 +961,14 @@ class _MappingFlow(ConfigSubentryFlow):
             )
         return self.async_create_entry(title=self._title, data=data)
 
+    def _save_anyway_field(self, fields: dict[vol.Marker, Any]) -> None:
+        """Offer saving a mapping that reads nothing now, when that can be right."""
+        if self._offer_save_anyway:
+            fields[vol.Optional(SAVE_ANYWAY, default=False)] = BooleanSelector()
+
 
 class SingleMappingFlow(_MappingFlow):
-    """Maps one entity. Subclasses name their kind."""
+    """Maps fields to entities. Subclasses name their kind."""
 
     kind_name: ClassVar[str] = ""
 
@@ -956,65 +977,247 @@ class SingleMappingFlow(_MappingFlow):
         """Return this flow's kind."""
         return KINDS[self.kind_name]
 
+    def _fields(self) -> list[FlatField]:
+        """Return fields this kind can use, by a readable label."""
+        return [
+            item
+            for item in self._listed.fields
+            if item.type not in (ScalarType.NULL, ScalarType.GEOMETRY)
+            or (self.kind_name == "device_tracker" and item.type is ScalarType.GEOMETRY)
+        ]
+
+    def _schema(self, user_input: Mapping[str, Any] | None) -> vol.Schema:
+        """Build the one screen."""
+        fields = self._fields()
+        main: dict[vol.Marker, Any] = {}
+        if self.kind_name == "device_tracker":
+            main[vol.Required(TITLE)] = _text_field()
+            for role in self._definition.roles:
+                main[vol.Optional(role.name)] = _labelled_field(fields)
+        elif self.source == "reconfigure":
+            main[vol.Required(TITLE)] = _text_field()
+            main[vol.Optional("value")] = _labelled_field(fields)
+        else:
+            main[vol.Optional(SELECTED)] = SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value=item.path, label=_label(item)) for item in fields
+                    ],
+                    multiple=True,
+                    custom_value=True,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            )
+        self._save_anyway_field(main)
+        advanced: dict[vol.Marker, Any] = dict(_settings_schema(self.kind_name))
+        if self.kind_name != "device_tracker" and self.source != "reconfigure":
+            advanced[vol.Optional(TITLE)] = _text_field()
+        advanced[vol.Optional(ATTRIBUTES)] = _attribute_field(fields)
+        advanced[vol.Optional(REFRESH)] = BooleanSelector()
+        main[vol.Optional(ADVANCED)] = section(vol.Schema(advanced), {"collapsed": True})
+        previous = user_input or {}
+        suggested: dict[str, Any] = {
+            TITLE: self._title,
+            **self._roles,
+            **previous,
+            ADVANCED: {
+                **self._settings,
+                ATTRIBUTES: self._attribute_rows(),
+                **previous.get(ADVANCED, {}),
+            },
+        }
+        return self.add_suggested_values_to_schema(vol.Schema(main), suggested)
+
     @override
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
-        """Choose paths."""
+        """Show one screen, and create what it asks for."""
         self._kind = self.kind_name
         if self._coordinator() is None:
             return self.async_abort(reason="not_loaded")
         errors: dict[str, str] = {}
-        placeholders: dict[str, str] = {}
-        if user_input is not None and user_input.get(REFRESH):
-            placeholders = await self._async_refresh(errors)
+        placeholders: dict[str, str] = {"time": "", "summary": ""}
+        advanced = user_input.get(ADVANCED, {}) if user_input is not None else {}
+        if advanced.get(REFRESH):
+            placeholders.update(await self._async_refresh(errors))
         await self._async_list_data()
-        if user_input is not None and not user_input.get(REFRESH):
-            error = self._read_roles(user_input)
-            if error is None:
-                return await self.async_step_settings()
-            errors["base"] = error
-        fields = self._found().fields
-        schema_fields: dict[vol.Marker, Any] = {vol.Required(TITLE): _text_field()}
-        for role in self._definition.roles:
-            marker = vol.Required if role.required else vol.Optional
-            schema_fields[marker(role.name)] = _path_field(fields)
-        schema_fields[vol.Optional(REFRESH, default=False)] = BooleanSelector()
-        suggested = {TITLE: self._title, **self._roles}
-        schema = self.add_suggested_values_to_schema(vol.Schema(schema_fields), suggested)
+        if user_input is not None and not advanced.get(REFRESH):
+            result = await self._async_submit(user_input, errors, placeholders)
+            if result is not None:
+                return result
         return self.async_show_form(
             step_id="user",
-            data_schema=schema,
+            data_schema=self._schema(user_input),
             errors=errors,
-            description_placeholders={"time": "", **placeholders},
+            description_placeholders=placeholders,
         )
 
-    def _read_roles(self, user_input: Mapping[str, Any]) -> str | None:
-        """Keep the chosen paths, or return an error key."""
+    async def _async_submit(
+        self, user_input: dict[str, Any], errors: dict[str, str], placeholders: dict[str, str]
+    ) -> SubentryFlowResult | None:
+        """Check the answers, and save them if they read something."""
+        advanced = user_input.get(ADVANCED, {})
+        rows = advanced.get(ATTRIBUTES, self._attribute_rows())
+        attributes, error = _read_attribute_rows(rows, relative=False)
+        if error is not None:
+            errors["base"] = error
+            return None
+        self._attributes = attributes
+        paths = self._chosen_paths(user_input)
+        if self.kind_name == "device_tracker":
+            return await self._async_save_tracker(user_input, errors, placeholders)
+        if not paths:
+            errors["base"] = "choose_field"
+            return None
+        if not all(_valid_path(path, relative=False) for path in paths):
+            errors["base"] = "invalid_path"
+            return None
+        if len(paths) > 1:
+            return await self._async_save_several(paths, user_input, errors, placeholders)
+        return await self._async_save_one(paths[0], user_input, errors, placeholders)
+
+    def _chosen_paths(self, user_input: Mapping[str, Any]) -> list[str]:
+        """Return the fields chosen."""
+        if self.source == "reconfigure":
+            value = user_input.get("value") or self._roles.get("value")
+            return [str(value).strip()] if value else []
+        return [str(path).strip() for path in user_input.get(SELECTED, [])]
+
+    def _suggestion(self, path: str) -> FieldSuggestion:
+        """Propose settings for a field of this kind."""
+        by_path = {item.path: item for item in self._listed.fields}
+        return suggest_field(by_path.get(path, FlatField(path, ScalarType.TEXT, "")))
+
+    def _field_mapping(self, path: str) -> tuple[str, dict[str, JsonValue]]:
+        """Build a title and stored data for a field, in this flow's kind."""
+        suggestion = self._suggestion(path)
+        data = field_data(suggestion, path)
+        if suggestion.kind.value != self.kind_name:
+            value_type = ValueType.TEXT.value
+            settings: dict[str, JsonValue] = (
+                {"value_type": value_type} if self.kind_name == "sensor" else {}
+            )
+            data = mapping_data(self.kind_name, {"value": path}, settings, {})
+        return suggestion.name, data
+
+    async def _async_save_several(
+        self,
+        paths: Sequence[str],
+        user_input: Mapping[str, Any],
+        errors: dict[str, str],
+        placeholders: dict[str, str],
+    ) -> SubentryFlowResult | None:
+        """Add several fields at once. A flow ends in one subentry, so others come first."""
+        reads: list[tuple[str, dict[str, JsonValue]]] = []
+        for path in paths:
+            title, data = self._field_mapping(path)
+            check = await self._async_check_single(title, data)
+            error, offer = _failure_error(check)
+            if error is not None and not (offer and user_input.get(SAVE_ANYWAY)):
+                errors["base"] = error
+                self._offer_save_anyway = offer
+                placeholders["summary"] = f"{label_for(path)}: {check.summary}"
+                return None
+            reads.append((title, data))
+        entry = self._get_entry()
+        for title, data in reads[:-1]:
+            self.hass.config_entries.async_add_subentry(
+                entry,
+                ConfigSubentry(
+                    data=MappingProxyType(data),
+                    subentry_type=self.kind_name,
+                    title=title,
+                    unique_id=None,
+                ),
+            )
+        title, data = reads[-1]
+        return self.async_create_entry(title=title, data=data)
+
+    async def _async_check_single(self, title: str, data: dict[str, JsonValue]) -> Check:
+        """Read a mapping from stored data."""
+        coordinator = self._coordinator()
+        mapping = parse_mapping("preview", title, self.kind_name, data)
+        if coordinator is None or mapping is None:
+            return Check("", Failure.TYPE_MISMATCH)
+        texts = await async_load_texts(self.hass)
+        return await self.hass.async_add_executor_job(
+            check_single,
+            coordinator.stored.body,
+            mapping,
+            dt_util.utcnow(),
+            dt_util.get_default_time_zone(),
+            texts,
+        )
+
+    async def _async_save_one(
+        self,
+        path: str,
+        user_input: Mapping[str, Any],
+        errors: dict[str, str],
+        placeholders: dict[str, str],
+    ) -> SubentryFlowResult | None:
+        """Save one field, with what the advanced section changed."""
+        advanced = user_input.get(ADVANCED, {})
+        title, data = self._field_mapping(path)
+        typed = _clean_settings(
+            {
+                key: value
+                for key, value in advanced.items()
+                if key not in (ATTRIBUTES, REFRESH, TITLE)
+            }
+        )
+        suggested = data["settings"]
+        base: dict[str, JsonValue] = dict(suggested) if isinstance(suggested, dict) else {}
+        kept = self._settings if self.source == "reconfigure" else base
+        self._settings = {**kept, **typed}
+        if self.kind_name == "sensor":
+            self._settings.setdefault("value_type", ValueType.TEXT.value)
+            error = _validate_settings(self._settings)
+            if error is not None:
+                errors["base"] = error
+                return None
+        self._roles = {"value": path}
+        self._title = str(user_input.get(TITLE) or advanced.get(TITLE) or title)
+        return await self._async_check_and_save(user_input, errors, placeholders)
+
+    async def _async_save_tracker(
+        self,
+        user_input: Mapping[str, Any],
+        errors: dict[str, str],
+        placeholders: dict[str, str],
+    ) -> SubentryFlowResult | None:
+        """Save a position."""
         roles = {
             role.name: str(user_input[role.name]).strip()
             for role in self._definition.roles
             if user_input.get(role.name)
         }
         if not all(_valid_path(text, relative=False) for text in roles.values()):
-            return "invalid_path"
+            errors["base"] = "invalid_path"
+            return None
         validate = self._definition.validate
         error = validate(roles) if validate is not None else None
         if error is not None:
-            return error
-        self._title = str(user_input[TITLE])
+            errors["base"] = error
+            return None
         self._roles = roles
-        if self._kind == "sensor" and "value_type" not in self._settings:
-            self._suggest_sensor(roles["value"])
-        return None
+        self._title = str(user_input[TITLE])
+        return await self._async_check_and_save(user_input, errors, placeholders)
 
-    def _suggest_sensor(self, path: str) -> None:
-        """Fill in suggested sensor settings."""
-        by_path = {item.path: item for item in self._found().fields}
-        guess = guess_sensor(path)
-        self._settings["value_type"] = value_type_of(by_path.get(path)).value
-        if guess.device_class is not None:
-            self._settings["device_class"] = guess.device_class.value
-        if guess.unit is not None:
-            self._settings["unit_of_measurement"] = guess.unit
+    async def _async_check_and_save(
+        self,
+        user_input: Mapping[str, Any],
+        errors: dict[str, str],
+        placeholders: dict[str, str],
+    ) -> SubentryFlowResult | None:
+        """Refuse a mapping that reads nothing, unless told to keep it."""
+        check = await self._async_check_single(self._title, self._stored_data())
+        error, offer = _failure_error(check)
+        if error is None or (offer and user_input.get(SAVE_ANYWAY)):
+            return self._save()
+        errors["base"] = error
+        self._offer_save_anyway = offer
+        placeholders["summary"] = check.summary
+        return None
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
@@ -1023,26 +1226,16 @@ class SingleMappingFlow(_MappingFlow):
         self._load_subentry()
         return await self.async_step_user()
 
-    @override
-    def _preview(self) -> str:
-        """Describe the read value."""
-        mapping = self._mapping()
-        coordinator = self._coordinator()
-        if mapping is None or coordinator is None:
-            return "?"
-        read = read_value(
-            coordinator.stored.body,
-            mapping,
-            ValueRead(),
-            dt_util.utcnow(),
-            dt_util.get_default_time_zone(),
+
+def _labelled_field(fields: Sequence[FlatField]) -> SelectSelector:
+    """Return a searchable list of fields by label, which also takes a typed path."""
+    return SelectSelector(
+        SelectSelectorConfig(
+            options=[SelectOptionDict(value=item.path, label=_label(item)) for item in fields],
+            custom_value=True,
+            mode=SelectSelectorMode.DROPDOWN,
         )
-        body = coordinator.stored.body
-        if read.failure is not None:
-            return "\n\n".join(
-                (f"Cannot read: {read.failure.value}", *_attribute_notes(body, mapping))
-            )
-        return "\n\n".join((_describe(read.value, mapping), *_attribute_notes(body, mapping)))
+    )
 
 
 def _single_flow(kind: str) -> type[SingleMappingFlow]:
@@ -1055,204 +1248,256 @@ def _single_flow(kind: str) -> type[SingleMappingFlow]:
 
 
 class CollectionFlow(_MappingFlow):
-    """Maps a list."""
+    """Maps a list on one screen, starting from a proposal."""
 
-    def _candidates(self) -> tuple[CollectionCandidate, ...]:
-        """Return lists in the stored data."""
-        return self._found().collections
+    def __init__(self) -> None:
+        """Start with no proposal."""
+        super().__init__()
+        self._proposed = False
+
+    def _candidate(self) -> CollectionCandidate | None:
+        """Return the chosen list."""
+        for candidate, _ in self._suggestions:
+            if candidate.path == self._list_path:
+                return candidate
+        return None
+
+    def _suggestion(self) -> CollectionSuggestion | None:
+        """Return the proposal for the chosen list."""
+        for candidate, suggestion in self._suggestions:
+            if candidate.path == self._list_path:
+                return suggestion
+        return None
+
+    def _fallback_title(self) -> str:
+        """Name a list at the root after the endpoint."""
+        return (URL(str(self._get_entry().data[CONF_URL])).host or "List").partition(".")[0]
+
+    def _apply_proposal(self, kind: str | None = None) -> None:
+        """Fill the flow from the proposal for the chosen list."""
+        suggestion = self._suggestion()
+        candidate = self._candidate()
+        if suggestion is None or candidate is None:
+            self._kind = kind or self._kind or "sensor"
+            self._key_path = self._key_path or ""
+            return
+        self._kind = kind or suggestion.kind.value
+        self._key_path = self._key_path or suggestion.key
+        self._title = self._title or collection_title(candidate.path, self._fallback_title())
+        self._roles = roles_for(self._kind, suggestion)
+        self._settings = collection_settings(self._kind, candidate, suggestion, self._title)
+        self._proposed = True
 
     @override
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
-        """Choose the list."""
+        """Choose the list, unless there is only one."""
         if self._coordinator() is None:
             return self.async_abort(reason="not_loaded")
         errors: dict[str, str] = {}
-        placeholders: dict[str, str] = {}
+        placeholders: dict[str, str] = {"time": ""}
         if user_input is not None and user_input.get(REFRESH):
-            placeholders = await self._async_refresh(errors)
+            placeholders.update(await self._async_refresh(errors))
         await self._async_list_data()
+        if self.source == "reconfigure":
+            return await self.async_step_proposal()
+        lists = [candidate for candidate, _ in self._suggestions]
+        if user_input is None and len(lists) == 1:
+            self._list_path = lists[0].path
+            return await self.async_step_proposal()
         if user_input is not None and not user_input.get(REFRESH):
-            if _valid_path(str(user_input[LIST_PATH]), relative=False):
-                self._list_path = str(user_input[LIST_PATH])
-                return await self.async_step_key()
+            path = str(user_input.get(LIST_PATH, "")).strip()
+            if path and _valid_path(path, relative=False):
+                self._list_path = path
+                self._key_path = None
+                self._title = ""
+                return await self.async_step_proposal()
             errors["base"] = "invalid_path"
         options = [
-            SelectOptionDict(value=item.path, label=f"{item.path} ({item.length})")
-            for item in self._candidates()
+            SelectOptionDict(value=item.path, label=f"{label_for(item.path)} ({item.length})")
+            for item in lists
         ]
         schema = vol.Schema(
             {
-                vol.Required(LIST_PATH): SelectSelector(
+                vol.Optional(LIST_PATH): SelectSelector(
                     SelectSelectorConfig(
                         options=options, custom_value=True, mode=SelectSelectorMode.DROPDOWN
                     )
                 ),
-                vol.Optional(REFRESH, default=False): BooleanSelector(),
+                vol.Optional(REFRESH): BooleanSelector(),
             }
         )
         return self.async_show_form(
             step_id="user",
-            data_schema=self.add_suggested_values_to_schema(schema, {LIST_PATH: self._list_path}),
+            data_schema=schema,
             errors=errors,
-            description_placeholders={"time": "", **placeholders},
+            description_placeholders=placeholders,
         )
 
-    async def async_step_key(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
-        """Choose the key, with likely ones first."""
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            if _valid_path(str(user_input[KEY_PATH]), relative=True):
-                self._key_path = str(user_input[KEY_PATH])
-                return await self.async_step_kind()
-            errors["base"] = "invalid_path"
-        likely: tuple[str, ...] = ()
-        for candidate in self._candidates():
-            if candidate.path == self._list_path:
-                likely = candidate.likely_keys
-        others = [item.path for item in self._item_fields() if item.path not in likely]
-        schema = vol.Schema(
-            {vol.Required(KEY_PATH): _plain_choice([*likely, *others], custom=True)}
-        )
-        return self.async_show_form(
-            step_id="key",
-            data_schema=self.add_suggested_values_to_schema(schema, {KEY_PATH: self._key_path}),
-            errors=errors,
-        )
-
-    async def async_step_kind(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
-        """Choose what items become."""
-        if user_input is not None:
-            self._kind = str(user_input[KIND])
-            return await self.async_step_item()
+    def _proposal_schema(self, texts_fields: Sequence[FlatField]) -> vol.Schema:
+        """Build the one screen."""
+        definition = KINDS[self._kind]
         kinds = [
             name
-            for name, definition in KINDS.items()
-            if definition.available() and definition.shapes & {Shape.ITEM, Shape.WHOLE_LIST}
+            for name, item in KINDS.items()
+            if item.available() and item.shapes & {Shape.ITEM, Shape.WHOLE_LIST}
         ]
-        schema = vol.Schema({vol.Required(KIND): _choice(kinds, "kind")})
-        return self.async_show_form(
-            step_id="kind",
-            data_schema=self.add_suggested_values_to_schema(schema, {KIND: self._kind}),
-        )
-
-    async def async_step_item(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
-        """Choose the paths inside an item."""
-        definition = KINDS[self._kind]
-        has_name = Shape.ITEM in definition.shapes
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            names = [role.name for role in definition.roles]
-            if has_name:
-                names.append(ROLE_NAME)
-            roles = {name: str(user_input[name]).strip() for name in names if user_input.get(name)}
-            error = definition.validate(roles) if definition.validate is not None else None
-            if not all(_valid_path(text, relative=True) for text in roles.values()):
-                error = "invalid_path"
-            if error is None:
-                self._title = str(user_input[TITLE])
-                self._roles = roles
-                if self._kind == "sensor" and "value_type" not in self._settings:
-                    self._settings["value_type"] = ValueType.NUMBER.value
-                return await self.async_step_settings()
-            errors["base"] = error
-        fields = self._item_fields()
-        schema_fields: dict[vol.Marker, Any] = {vol.Required(TITLE): _text_field()}
-        if has_name:
-            schema_fields[vol.Optional(ROLE_NAME)] = _path_field(fields)
+        main: dict[vol.Marker, Any] = {
+            vol.Required(TITLE): _text_field(),
+            vol.Required(KIND): _choice(kinds, "kind"),
+        }
+        self._save_anyway_field(main)
+        advanced: dict[vol.Marker, Any] = {vol.Optional(KEY_PATH): _labelled_field(texts_fields)}
+        if Shape.ITEM in definition.shapes:
+            advanced[vol.Optional(ROLE_NAME)] = _labelled_field(texts_fields)
         for role in definition.roles:
-            marker = vol.Required if role.required else vol.Optional
-            schema_fields[marker(role.name)] = _path_field(fields)
-        schema = self.add_suggested_values_to_schema(
-            vol.Schema(schema_fields), {TITLE: self._title, **self._roles}
-        )
-        return self.async_show_form(step_id="item", data_schema=schema, errors=errors)
+            advanced[vol.Optional(role.name)] = _labelled_field(texts_fields)
+        advanced.update(_settings_schema(self._kind))
+        advanced[vol.Optional(ITEM_LIMIT)] = _number_field(1, MAX_ITEM_LIMIT)
+        advanced[vol.Optional(REMOVAL_AFTER)] = _number_field(1, 10)
+        advanced[vol.Optional(EVENTS)] = BooleanSelector()
+        if definition.has_attributes:
+            advanced[vol.Optional(ATTRIBUTES)] = _attribute_field(texts_fields)
+        advanced[vol.Optional(REFRESH)] = BooleanSelector()
+        main[vol.Optional(ADVANCED)] = section(vol.Schema(advanced), {"collapsed": True})
+        suggested: dict[str, Any] = {
+            TITLE: self._title,
+            KIND: self._kind,
+            ADVANCED: self._advanced_defaults(),
+        }
+        return self.add_suggested_values_to_schema(vol.Schema(main), suggested)
 
-    @override
-    async def _async_after_settings(self) -> SubentryFlowResult:
-        """Ask for limits next."""
-        return await self.async_step_limits()
+    def _advanced_defaults(self) -> dict[str, Any]:
+        """Return the proposal, as a section sends only fields that were changed."""
+        return {
+            KEY_PATH: self._key_path,
+            **self._roles,
+            **self._settings,
+            ATTRIBUTES: self._attribute_rows(),
+        }
 
-    async def async_step_limits(
-        self, user_input: dict[str, Any] | None = None
-    ) -> SubentryFlowResult:
-        """Ask for limits and events."""
-        if user_input is not None:
-            self._settings.update(_clean_settings(user_input))
-            self._settings.setdefault("source", slugify(self._title))
-            return await self.async_step_attributes()
-        schema = vol.Schema(
+    def _read_advanced(self, user_input: Mapping[str, Any]) -> str | None:
+        """Take the form's answers, and return an error key."""
+        advanced = user_input.get(ADVANCED, self._advanced_defaults())
+        definition = KINDS[self._kind]
+        names = [role.name for role in definition.roles]
+        if Shape.ITEM in definition.shapes:
+            names.append(ROLE_NAME)
+        roles = {name: str(advanced[name]).strip() for name in names if advanced.get(name)}
+        for role in definition.roles:
+            if role.required and role.name not in roles:
+                return "choose_field"
+        if definition.validate is not None and (error := definition.validate(roles)):
+            return error
+        key = str(advanced.get(KEY_PATH) or "").strip()
+        if not key:
+            return "choose_key"
+        if not all(_valid_path(text, relative=True) for text in (*roles.values(), key)):
+            return "invalid_path"
+        attributes, error = _read_attribute_rows(advanced.get(ATTRIBUTES, []), relative=True)
+        if error is not None:
+            return error
+        settings_keys = {str(marker) for marker in _settings_schema(self._kind)}
+        settings = _clean_settings(
             {
-                vol.Required(ITEM_LIMIT): _number_field(1, MAX_ITEM_LIMIT),
-                vol.Required(REMOVAL_AFTER): _number_field(1, 10),
-                vol.Required(EVENTS): BooleanSelector(),
+                name: advanced[name]
+                for name in (*settings_keys, ITEM_LIMIT, REMOVAL_AFTER, EVENTS)
+                if name in advanced
             }
         )
-        defaults = {
-            ITEM_LIMIT: DEFAULT_ITEM_LIMIT,
-            REMOVAL_AFTER: DEFAULT_REMOVAL_AFTER,
-            EVENTS: True,
-            **self._settings,
-        }
+        if self._kind == "sensor":
+            error = _validate_settings(settings)
+            if error is not None:
+                return error
+        source = self._settings.get("source")
+        self._settings = settings
+        self._settings["source"] = source if source else slugify(str(user_input[TITLE]))
+        self._roles = roles
+        self._key_path = key
+        self._attributes = attributes
+        self._title = str(user_input[TITLE])
+        return None
+
+    async def async_step_proposal(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Show the proposal, ready to confirm."""
+        if self.source == "reconfigure" and not self._kind:
+            self._load_subentry()
+            self._proposed = True
+        if not self._proposed:
+            self._apply_proposal()
+        errors: dict[str, str] = {}
+        placeholders = {"summary": "", "time": ""}
+        if user_input is not None:
+            kind = str(user_input.get(KIND, self._kind))
+            advanced = user_input.get(ADVANCED, {})
+            if advanced.get(REFRESH):
+                placeholders.update(await self._async_refresh(errors))
+                await self._async_list_data()
+            elif kind != self._kind:
+                self._title = str(user_input.get(TITLE, self._title))
+                self._apply_proposal(kind)
+            else:
+                result = await self._async_submit(user_input, errors)
+                if result is not None:
+                    return result
+        texts = await async_load_texts(self.hass)
+        placeholders["summary"] = await self._async_summary(texts)
+        candidate = self._candidate()
+        fields = candidate.item_fields if candidate is not None else ()
         return self.async_show_form(
-            step_id="limits", data_schema=self.add_suggested_values_to_schema(schema, defaults)
+            step_id="proposal",
+            data_schema=self._proposal_schema(fields),
+            errors=errors,
+            description_placeholders=placeholders,
         )
+
+    async def _async_check(self, texts: Texts) -> Check | None:
+        """Read the mapping as it stands from stored data."""
+        coordinator = self._coordinator()
+        mapping = parse_mapping("preview", self._title, COLLECTION, self._stored_data())
+        if coordinator is None or mapping is None:
+            return None
+        return await self.hass.async_add_executor_job(
+            check_collection,
+            coordinator.stored.body,
+            mapping,
+            dt_util.utcnow(),
+            dt_util.get_default_time_zone(),
+            texts,
+        )
+
+    async def _async_summary(self, texts: Texts) -> str:
+        """Say what the proposal will create."""
+        check = await self._async_check(texts)
+        summary = check.summary if check is not None else ""
+        mapping = parse_mapping("preview", self._title, COLLECTION, self._stored_data())
+        if self._kind == "geo_location" and mapping is not None:
+            return f"{summary}\n\n{texts('map_hint', source=source_for(mapping))}"
+        return summary
+
+    async def _async_submit(
+        self, user_input: dict[str, Any], errors: dict[str, str]
+    ) -> SubentryFlowResult | None:
+        """Save, unless the mapping reads nothing."""
+        error = self._read_advanced(user_input)
+        if error is not None:
+            errors["base"] = error
+            return None
+        texts = await async_load_texts(self.hass)
+        check = await self._async_check(texts)
+        if check is None:
+            errors["base"] = "invalid_path"
+            return None
+        problem, offer = _failure_error(check)
+        if problem is None or (offer and user_input.get(SAVE_ANYWAY)):
+            return self._save()
+        errors["base"] = problem
+        self._offer_save_anyway = offer
+        return None
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
         """Change the collection."""
-        self._load_subentry()
         return await self.async_step_user()
-
-    @override
-    def _preview(self) -> str:
-        """Describe the items found."""
-        mapping = self._mapping()
-        coordinator = self._coordinator()
-        if (
-            mapping is None
-            or coordinator is None
-            or mapping.list_path is None
-            or mapping.key_path is None
-        ):
-            return "?"
-        body = coordinator.stored.body
-        items = read_items(body, mapping.list_path, mapping.key_path)
-        if items is None:
-            return f"No list at {mapping.list_path}"
-        now = dt_util.utcnow()
-        zone = dt_util.get_default_time_zone()
-        reads = {
-            key: read_value(item, mapping, ValueRead(), now, zone)
-            for key, item in items.items.items()
-        }
-        unreadable = items.skipped + sum(1 for read in reads.values() if read.failure)
-        lines = [f"Items: {len(items.items)}, skipped: {unreadable}"]
-        for key, read in list(reads.items())[:_PREVIEW_ITEMS]:
-            value = read.failure.value if read.failure else _describe(read.value, mapping)
-            lines.append(f"{key}: {value}")
-        for item in list(items.items.values())[:1]:
-            lines.extend(_attribute_notes(item, mapping))
-        return "\n\n".join(lines)
-
-    @override
-    async def _async_save(self) -> SubentryFlowResult:
-        """Show the map card setting for positions first."""
-        if self._kind == "geo_location":
-            return await self.async_step_map_hint()
-        return await super()._async_save()
-
-    async def async_step_map_hint(
-        self, user_input: dict[str, Any] | None = None
-    ) -> SubentryFlowResult:
-        """Say how to show positions on a map."""
-        if user_input is not None:
-            return await super()._async_save()
-        mapping = self._mapping()
-        return self.async_show_form(
-            step_id="map_hint",
-            data_schema=vol.Schema({}),
-            description_placeholders={
-                "source": source_for(mapping) if mapping is not None else DOMAIN
-            },
-        )
