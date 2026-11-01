@@ -1,0 +1,520 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add an endpoint",
+        "data": {
+          "url": "URL",
+          "auth_type": "Authentication"
+        },
+        "description": "One test request is sent, and its response is kept for choosing values."
+      },
+      "auth": {
+        "title": "Credentials",
+        "data": {
+          "auth_name": "Header or parameter name",
+          "auth_value": "Key or token"
+        }
+      },
+      "insecure": {
+        "title": "Unencrypted connection",
+        "data": {},
+        "description": "This address uses plain HTTP, so your key can be read on the way. Continue only if you accept that."
+      },
+      "polling": {
+        "title": "How often to poll?",
+        "data": {
+          "mode": "Update mode",
+          "interval_seconds": "Interval in seconds",
+          "budget_limit": "Requests per period (0 for no budget)",
+          "budget_period": "Budget period, in UTC"
+        },
+        "description": "Check your API's limit. A key with a monthly limit runs out fast at short intervals."
+      },
+      "cost": {
+        "title": "What this uses",
+        "data": {},
+        "description": "This uses about {per_day} requests a day and {per_month} a month. Spacing forced by the budget, in minutes: {budget_note}"
+      },
+      "fields": {
+        "title": "First sensors",
+        "data": {
+          "selected_fields": "Fields"
+        },
+        "description": "Optional. More mappings can be added later."
+      },
+      "reauth_confirm": {
+        "title": "New credentials",
+        "data": {
+          "auth_name": "Header or parameter name",
+          "auth_value": "Key or token"
+        }
+      },
+      "reconfigure": {
+        "title": "Change the endpoint",
+        "data": {
+          "url": "URL",
+          "auth_name": "Header or parameter name",
+          "auth_value": "Key or token"
+        }
+      }
+    },
+    "error": {
+      "invalid_url": "Enter a full http or https URL.",
+      "credentials_in_url": "Do not put credentials in the URL. Choose an authentication type.",
+      "cannot_connect": "Cannot connect to the endpoint.",
+      "invalid_auth": "The endpoint refused the credentials.",
+      "rate_limited": "The endpoint reports too many requests. Try again later.",
+      "server_error": "The endpoint reports a server error.",
+      "bad_status": "The endpoint answered with an unexpected status.",
+      "bad_redirect": "The endpoint redirects to another address, which is not followed, to protect credentials.",
+      "too_large": "The response is larger than the size limit.",
+      "not_json": "The response is not JSON.",
+      "already_configured": "This endpoint is already configured."
+    },
+    "abort": {
+      "invalid_url": "Enter a full http or https URL.",
+      "credentials_in_url": "Do not put credentials in the URL. Choose an authentication type.",
+      "cannot_connect": "Cannot connect to the endpoint.",
+      "invalid_auth": "The endpoint refused the credentials.",
+      "rate_limited": "The endpoint reports too many requests. Try again later.",
+      "server_error": "The endpoint reports a server error.",
+      "bad_status": "The endpoint answered with an unexpected status.",
+      "bad_redirect": "The endpoint redirects to another address, which is not followed, to protect credentials.",
+      "too_large": "The response is larger than the size limit.",
+      "not_json": "The response is not JSON.",
+      "already_configured": "This endpoint is already configured.",
+      "reauth_successful": "Credentials updated.",
+      "reconfigure_successful": "Endpoint changed."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Polling and limits",
+        "data": {
+          "mode": "Update mode",
+          "interval_seconds": "Interval in seconds",
+          "budget_limit": "Requests per period (0 for no budget)",
+          "budget_period": "Budget period, in UTC",
+          "reserve_percent": "Reserve for manual requests, in percent",
+          "retention_seconds": "Keep values for this many seconds (0 for no limit)",
+          "max_response_kib": "Response size limit in KiB",
+          "timeout_seconds": "Timeout in seconds"
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "sensor": {
+      "entry_type": "Sensor",
+      "initiate_flow": {
+        "user": "Add sensor",
+        "reconfigure": "Change sensor"
+      },
+      "step": {
+        "user": {
+          "title": "Choose paths",
+          "data": {
+            "title": "Name",
+            "value": "Value",
+            "refresh_sample": "Fetch fresh data first (uses one request)"
+          },
+          "description": "Paths come from stored data, so this uses no requests."
+        },
+        "attributes": {
+          "title": "Attributes",
+          "data": {
+            "attributes": "Attributes"
+          },
+          "description": "Optional. Attributes are not kept in history."
+        },
+        "confirm": {
+          "title": "Check the result",
+          "data": {
+            "back": "Go back and change it"
+          },
+          "description": "Read from the stored data:\n\n{preview}"
+        },
+        "settings": {
+          "title": "Settings",
+          "data": {
+            "value_type": "Value type",
+            "device_class": "Device class",
+            "unit_of_measurement": "Unit",
+            "state_class": "State class",
+            "suggested_display_precision": "Decimal places",
+            "naive_local": "Times without a zone are in the Home Assistant time zone"
+          }
+        }
+      },
+      "error": {
+        "invalid_path": "This path is not valid. Example: $.items[0].id",
+        "position_required": "Choose a geometry, or both latitude and longitude.",
+        "not_loaded": "The endpoint is not running.",
+        "refresh_refused": "Fresh data cannot be fetched before {time}.",
+        "too_many_attributes": "A mapping can have at most 20 attributes.",
+        "invalid_attribute_name": "Attribute names use lowercase letters, digits and underscores.",
+        "reserved_attribute": "This attribute name is reserved.",
+        "duplicate_attribute": "Two attributes have the same name.",
+        "unit_mismatch": "This unit does not fit the device class.",
+        "state_class_mismatch": "This state class does not fit the device class.",
+        "value_type_mismatch": "This value type does not fit the device class, state class or unit."
+      },
+      "abort": {
+        "not_loaded": "The endpoint is not running.",
+        "reconfigure_successful": "Mapping changed."
+      }
+    },
+    "binary_sensor": {
+      "entry_type": "Binary sensor",
+      "initiate_flow": {
+        "user": "Add binary sensor",
+        "reconfigure": "Change binary sensor"
+      },
+      "step": {
+        "user": {
+          "title": "Choose paths",
+          "data": {
+            "title": "Name",
+            "value": "Value",
+            "refresh_sample": "Fetch fresh data first (uses one request)"
+          },
+          "description": "Paths come from stored data, so this uses no requests."
+        },
+        "attributes": {
+          "title": "Attributes",
+          "data": {
+            "attributes": "Attributes"
+          },
+          "description": "Optional. Attributes are not kept in history."
+        },
+        "confirm": {
+          "title": "Check the result",
+          "data": {
+            "back": "Go back and change it"
+          },
+          "description": "Read from the stored data:\n\n{preview}"
+        },
+        "settings": {
+          "title": "Settings",
+          "data": {
+            "device_class": "Device class",
+            "on_values": "Values meaning on, separated by commas",
+            "off_values": "Values meaning off, separated by commas"
+          }
+        }
+      },
+      "error": {
+        "invalid_path": "This path is not valid. Example: $.items[0].id",
+        "position_required": "Choose a geometry, or both latitude and longitude.",
+        "not_loaded": "The endpoint is not running.",
+        "refresh_refused": "Fresh data cannot be fetched before {time}.",
+        "too_many_attributes": "A mapping can have at most 20 attributes.",
+        "invalid_attribute_name": "Attribute names use lowercase letters, digits and underscores.",
+        "reserved_attribute": "This attribute name is reserved.",
+        "duplicate_attribute": "Two attributes have the same name.",
+        "unit_mismatch": "This unit does not fit the device class.",
+        "state_class_mismatch": "This state class does not fit the device class.",
+        "value_type_mismatch": "This value type does not fit the device class, state class or unit."
+      },
+      "abort": {
+        "not_loaded": "The endpoint is not running.",
+        "reconfigure_successful": "Mapping changed."
+      }
+    },
+    "device_tracker": {
+      "entry_type": "Tracker",
+      "initiate_flow": {
+        "user": "Add tracker",
+        "reconfigure": "Change tracker"
+      },
+      "step": {
+        "user": {
+          "title": "Choose paths",
+          "data": {
+            "title": "Name",
+            "latitude": "Latitude",
+            "longitude": "Longitude",
+            "geometry": "GeoJSON geometry",
+            "accuracy": "Accuracy in metres",
+            "refresh_sample": "Fetch fresh data first (uses one request)"
+          },
+          "description": "Paths come from stored data, so this uses no requests."
+        },
+        "attributes": {
+          "title": "Attributes",
+          "data": {
+            "attributes": "Attributes"
+          },
+          "description": "Optional. Attributes are not kept in history."
+        },
+        "confirm": {
+          "title": "Check the result",
+          "data": {
+            "back": "Go back and change it"
+          },
+          "description": "Read from the stored data:\n\n{preview}"
+        }
+      },
+      "error": {
+        "invalid_path": "This path is not valid. Example: $.items[0].id",
+        "position_required": "Choose a geometry, or both latitude and longitude.",
+        "not_loaded": "The endpoint is not running.",
+        "refresh_refused": "Fresh data cannot be fetched before {time}.",
+        "too_many_attributes": "A mapping can have at most 20 attributes.",
+        "invalid_attribute_name": "Attribute names use lowercase letters, digits and underscores.",
+        "reserved_attribute": "This attribute name is reserved.",
+        "duplicate_attribute": "Two attributes have the same name.",
+        "unit_mismatch": "This unit does not fit the device class.",
+        "state_class_mismatch": "This state class does not fit the device class.",
+        "value_type_mismatch": "This value type does not fit the device class, state class or unit."
+      },
+      "abort": {
+        "not_loaded": "The endpoint is not running.",
+        "reconfigure_successful": "Mapping changed."
+      }
+    },
+    "collection": {
+      "entry_type": "Collection",
+      "initiate_flow": {
+        "user": "Add collection",
+        "reconfigure": "Change collection"
+      },
+      "step": {
+        "user": {
+          "title": "Choose the list",
+          "data": {
+            "list_path": "List",
+            "refresh_sample": "Fetch fresh data first (uses one request)"
+          },
+          "description": "Each list item can become an entity. Lists come from stored data."
+        },
+        "key": {
+          "title": "Choose the key",
+          "data": {
+            "key_path": "Key"
+          },
+          "description": "The key identifies an item between responses. Likely keys are listed first."
+        },
+        "kind": {
+          "title": "What should items become?",
+          "data": {
+            "kind": "Type"
+          },
+          "description": "A tracker suits objects that stay, and shows on the default Map. A position suits short-lived objects, and leaves no registry entries. A calendar makes one entity from the whole list."
+        },
+        "item": {
+          "title": "Choose paths inside an item",
+          "data": {
+            "title": "Name",
+            "name": "Item name",
+            "value": "Value",
+            "latitude": "Latitude",
+            "longitude": "Longitude",
+            "geometry": "GeoJSON geometry",
+            "accuracy": "Accuracy in metres",
+            "start": "Start",
+            "summary": "Summary",
+            "end": "End",
+            "description": "Description",
+            "location": "Location"
+          }
+        },
+        "settings": {
+          "title": "Settings",
+          "data": {
+            "value_type": "Value type",
+            "device_class": "Device class",
+            "unit_of_measurement": "Unit",
+            "state_class": "State class",
+            "suggested_display_precision": "Decimal places",
+            "naive_local": "Times without a zone are in the Home Assistant time zone",
+            "on_values": "Values meaning on, separated by commas",
+            "off_values": "Values meaning off, separated by commas"
+          }
+        },
+        "limits": {
+          "title": "Limits",
+          "data": {
+            "item_limit": "Most items to follow",
+            "removal_after": "Remove after this many responses without the item",
+            "events": "Fire an event for new items"
+          }
+        },
+        "attributes": {
+          "title": "Attributes",
+          "data": {
+            "attributes": "Attributes"
+          },
+          "description": "Optional. Attributes are not kept in history."
+        },
+        "confirm": {
+          "title": "Check the result",
+          "data": {
+            "back": "Go back and change it"
+          },
+          "description": "Read from the stored data:\n\n{preview}"
+        },
+        "map_hint": {
+          "title": "Showing positions on a map",
+          "data": {},
+          "description": "The default Map dashboard does not show these entities. Add a map card with `geo_location_sources: [{source}]`."
+        }
+      },
+      "error": {
+        "invalid_path": "This path is not valid. Example: $.items[0].id",
+        "position_required": "Choose a geometry, or both latitude and longitude.",
+        "not_loaded": "The endpoint is not running.",
+        "refresh_refused": "Fresh data cannot be fetched before {time}.",
+        "too_many_attributes": "A mapping can have at most 20 attributes.",
+        "invalid_attribute_name": "Attribute names use lowercase letters, digits and underscores.",
+        "reserved_attribute": "This attribute name is reserved.",
+        "duplicate_attribute": "Two attributes have the same name.",
+        "unit_mismatch": "This unit does not fit the device class.",
+        "state_class_mismatch": "This state class does not fit the device class.",
+        "value_type_mismatch": "This value type does not fit the device class, state class or unit."
+      },
+      "abort": {
+        "not_loaded": "The endpoint is not running.",
+        "reconfigure_successful": "Mapping changed."
+      }
+    }
+  },
+  "selector": {
+    "auth_type": {
+      "options": {
+        "none": "None",
+        "bearer": "Bearer",
+        "header": "Key in a header",
+        "query": "Key in a query parameter"
+      }
+    },
+    "mode": {
+      "options": {
+        "automatic": "Automatic",
+        "on_demand": "Only on demand"
+      }
+    },
+    "budget_period": {
+      "options": {
+        "hour": "Hour",
+        "day": "Day",
+        "month": "Month"
+      }
+    },
+    "value_type": {
+      "options": {
+        "number": "Number",
+        "text": "Text",
+        "timestamp": "Time",
+        "boolean": "Boolean"
+      }
+    },
+    "kind": {
+      "options": {
+        "sensor": "Sensor",
+        "binary_sensor": "Binary sensor",
+        "device_tracker": "Tracker",
+        "geo_location": "Position (short-lived)",
+        "calendar": "Calendar"
+      }
+    },
+    "attribute": {
+      "fields": {
+        "name": {
+          "name": "Name (optional)"
+        },
+        "path": {
+          "name": "Path"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "last_data": {
+        "name": "Last confirmed data"
+      },
+      "status": {
+        "name": "Status",
+        "state": {
+          "ok": "OK",
+          "retrying": "Retrying",
+          "rate_limited": "Rate limited",
+          "auth_failed": "Credentials refused",
+          "budget_exhausted": "Budget used up",
+          "on_demand": "On demand"
+        }
+      },
+      "next_update": {
+        "name": "Next update"
+      },
+      "requests_used": {
+        "name": "Requests used"
+      },
+      "requests_remaining": {
+        "name": "Requests remaining"
+      },
+      "item_count": {
+        "name": "Item count"
+      }
+    },
+    "binary_sensor": {
+      "stale": {
+        "name": "Data problem"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Refresh"
+      }
+    },
+    "event": {
+      "new_item": {
+        "name": "New item",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "new_item": "New item"
+            }
+          }
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "budget_exhausted": {
+      "message": "The request budget is used up until {time}."
+    },
+    "rate_limited": {
+      "message": "The endpoint asked to wait until {time}."
+    }
+  },
+  "issues": {
+    "broken_mapping": {
+      "title": "Mapping {mapping} cannot be read",
+      "description": "The path {path} failed in the last responses ({reason}). Change or remove the mapping."
+    },
+    "collection_list_missing": {
+      "title": "List of {mapping} is missing",
+      "description": "No list was found at {path} in the last responses."
+    },
+    "collection_limit": {
+      "title": "{mapping} reached its item limit",
+      "description": "The limit is {limit}, and {ignored} items are ignored. Raise the limit in the mapping."
+    },
+    "collection_unreadable": {
+      "title": "Most items of {mapping} cannot be read",
+      "description": "{count} items have no usable key at {path}, or no valid value."
+    },
+    "unknown_kind": {
+      "title": "Mapping {mapping} is not available",
+      "description": "Its entity type is not supported here, so it is skipped. It stays stored."
+    },
+    "rate_limited": {
+      "title": "{endpoint} keeps limiting requests",
+      "description": "Set a longer interval or a request budget in the options."
+    }
+  }
+}

@@ -1,0 +1,15 @@
+name: rest-mapper-test
+
+services:
+  homeassistant:
+    build: .
+    ports:
+      - "127.0.0.1:8124:8123"
+    environment:
+      TZ: Europe/Warsaw
+    volumes:
+      - config:/config
+      - ../custom_components/rest_mapper:/config/custom_components/rest_mapper:ro
+
+volumes:
+  config:

@@ -1,0 +1,10 @@
+{"ac":[
+{"hex":"4ca8d5","type":"adsb_icao","flight":"RYR15SU ","r":"EI-ENJ","t":"B738","alt_baro":12400,"alt_geom":12825,"gs":321.6,"ias":277,"tas":330,"mach":0.524,"wd":139,"ws":16,"oat":-12,"tat":2,"track":86.61,"track_rate":-0.03,"roll":-0.70,"mag_heading":82.79,"true_heading":88.89,"baro_rate":-1984,"geom_rate":-1952,"squawk":"4646","emergency":"none","category":"A3","nav_qnh":1013.6,"nav_altitude_mcp":8992,"nav_heading":82.97,"lat":50.007345,"lon":18.652558,"nic":7,"rc":371,"seen_pos":0.053,"version":2,"nic_baro":1,"nac_p":8,"nac_v":1,"sil":3,"sil_type":"perhour","gva":1,"sda":2,"alert":0,"spi":0,"mlat":[],"tisb":[],"messages":151834,"seen":0.1,"rssi":-10.2,"dst":20.730,"dir":223.1},
+{"hex":"48ada9","type":"adsb_icao","flight":"LOT6PZ  ","r":"SP-LNK","t":"E195","alt_baro":33600,"alt_geom":33900,"gs":453.3,"ias":254,"tas":424,"mach":0.732,"wd":47,"ws":30,"oat":-52,"tat":-29,"track":221.60,"track_rate":0.00,"roll":0.00,"mag_heading":214.98,"true_heading":221.11,"baro_rate":576,"geom_rate":544,"squawk":"1000","category":"A3","nav_qnh":1013.6,"nav_altitude_mcp":34016,"nav_altitude_fms":34000,"nav_modes":["autopilot","tcas"],"lat":50.323059,"lon":18.668590,"nic":8,"rc":186,"seen_pos":0.430,"version":2,"nic_baro":1,"nac_p":10,"nac_v":2,"sil":3,"sil_type":"perhour","gva":2,"sda":2,"alert":0,"spi":0,"mlat":[],"tisb":[],"messages":66066,"seen":0.1,"rssi":-7.4,"dst":13.973,"dir":285.8}
+]
+,"msg": "No error"
+,"now": 1793545737500
+,"total": 2
+,"ctime": 1793545737500
+,"ptime": 0
+}

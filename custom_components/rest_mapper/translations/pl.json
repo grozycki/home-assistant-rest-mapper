@@ -1,0 +1,520 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Dodaj endpoint",
+        "data": {
+          "url": "URL",
+          "auth_type": "Autoryzacja"
+        },
+        "description": "Wysyłane jest jedno zapytanie testowe, a odpowiedź zostaje do wyboru wartości."
+      },
+      "auth": {
+        "title": "Dane logowania",
+        "data": {
+          "auth_name": "Nazwa nagłówka lub parametru",
+          "auth_value": "Klucz lub token"
+        }
+      },
+      "insecure": {
+        "title": "Połączenie bez szyfrowania",
+        "data": {},
+        "description": "Ten adres używa zwykłego HTTP, więc klucz może zostać podejrzany po drodze. Kontynuuj tylko, jeśli to akceptujesz."
+      },
+      "polling": {
+        "title": "Jak często odpytywać?",
+        "data": {
+          "mode": "Tryb aktualizacji",
+          "interval_seconds": "Interwał w sekundach",
+          "budget_limit": "Zapytania na okres (0 to brak budżetu)",
+          "budget_period": "Okres budżetu, w UTC"
+        },
+        "description": "Sprawdź limit swojego API. Klucz z limitem miesięcznym szybko się wyczerpie przy krótkim interwale."
+      },
+      "cost": {
+        "title": "Ile to zużyje",
+        "data": {},
+        "description": "To około {per_day} zapytań dziennie i {per_month} miesięcznie. Odstęp wymuszony przez budżet, w minutach: {budget_note}"
+      },
+      "fields": {
+        "title": "Pierwsze sensory",
+        "data": {
+          "selected_fields": "Pola"
+        },
+        "description": "Opcjonalne. Kolejne mapowania można dodać później."
+      },
+      "reauth_confirm": {
+        "title": "Nowe dane logowania",
+        "data": {
+          "auth_name": "Nazwa nagłówka lub parametru",
+          "auth_value": "Klucz lub token"
+        }
+      },
+      "reconfigure": {
+        "title": "Zmień endpoint",
+        "data": {
+          "url": "URL",
+          "auth_name": "Nazwa nagłówka lub parametru",
+          "auth_value": "Klucz lub token"
+        }
+      }
+    },
+    "error": {
+      "invalid_url": "Podaj pełny adres http lub https.",
+      "credentials_in_url": "Nie umieszczaj danych logowania w adresie. Wybierz typ autoryzacji.",
+      "cannot_connect": "Nie można połączyć się z endpointem.",
+      "invalid_auth": "Endpoint odrzucił dane logowania.",
+      "rate_limited": "Endpoint zgłasza zbyt wiele zapytań. Spróbuj później.",
+      "server_error": "Endpoint zgłasza błąd serwera.",
+      "bad_status": "Endpoint odpowiedział nieoczekiwanym statusem.",
+      "bad_redirect": "Endpoint przekierowuje na inny adres. Dla ochrony danych logowania nie jest to wykonywane.",
+      "too_large": "Odpowiedź przekracza limit rozmiaru.",
+      "not_json": "Odpowiedź nie jest w formacie JSON.",
+      "already_configured": "Ten endpoint jest już skonfigurowany."
+    },
+    "abort": {
+      "invalid_url": "Podaj pełny adres http lub https.",
+      "credentials_in_url": "Nie umieszczaj danych logowania w adresie. Wybierz typ autoryzacji.",
+      "cannot_connect": "Nie można połączyć się z endpointem.",
+      "invalid_auth": "Endpoint odrzucił dane logowania.",
+      "rate_limited": "Endpoint zgłasza zbyt wiele zapytań. Spróbuj później.",
+      "server_error": "Endpoint zgłasza błąd serwera.",
+      "bad_status": "Endpoint odpowiedział nieoczekiwanym statusem.",
+      "bad_redirect": "Endpoint przekierowuje na inny adres. Dla ochrony danych logowania nie jest to wykonywane.",
+      "too_large": "Odpowiedź przekracza limit rozmiaru.",
+      "not_json": "Odpowiedź nie jest w formacie JSON.",
+      "already_configured": "Ten endpoint jest już skonfigurowany.",
+      "reauth_successful": "Dane logowania zaktualizowane.",
+      "reconfigure_successful": "Endpoint zmieniony."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Odpytywanie i limity",
+        "data": {
+          "mode": "Tryb aktualizacji",
+          "interval_seconds": "Interwał w sekundach",
+          "budget_limit": "Zapytania na okres (0 to brak budżetu)",
+          "budget_period": "Okres budżetu, w UTC",
+          "reserve_percent": "Rezerwa na zapytania ręczne, w procentach",
+          "retention_seconds": "Trzymaj wartości przez tyle sekund (0 to bez limitu)",
+          "max_response_kib": "Limit rozmiaru odpowiedzi w KiB",
+          "timeout_seconds": "Limit czasu w sekundach"
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "sensor": {
+      "entry_type": "Sensor",
+      "initiate_flow": {
+        "user": "Dodaj sensor",
+        "reconfigure": "Zmień sensor"
+      },
+      "step": {
+        "user": {
+          "title": "Wybierz ścieżki",
+          "data": {
+            "title": "Nazwa",
+            "value": "Wartość",
+            "refresh_sample": "Najpierw pobierz świeże dane (zużywa jedno zapytanie)"
+          },
+          "description": "Ścieżki pochodzą z zapisanych danych, więc nie zużywa to zapytań."
+        },
+        "attributes": {
+          "title": "Atrybuty",
+          "data": {
+            "attributes": "Atrybuty"
+          },
+          "description": "Opcjonalne. Atrybuty nie są zapisywane w historii."
+        },
+        "confirm": {
+          "title": "Sprawdź wynik",
+          "data": {
+            "back": "Wróć i zmień"
+          },
+          "description": "Odczyt z zapisanych danych:\n\n{preview}"
+        },
+        "settings": {
+          "title": "Ustawienia",
+          "data": {
+            "value_type": "Typ wartości",
+            "device_class": "Klasa urządzenia",
+            "unit_of_measurement": "Jednostka",
+            "state_class": "Klasa stanu",
+            "suggested_display_precision": "Miejsca po przecinku",
+            "naive_local": "Czasy bez strefy są w strefie Home Assistanta"
+          }
+        }
+      },
+      "error": {
+        "invalid_path": "Ta ścieżka jest niepoprawna. Przykład: $.items[0].id",
+        "position_required": "Wybierz geometrię albo szerokość i długość geograficzną.",
+        "not_loaded": "Endpoint nie działa.",
+        "refresh_refused": "Świeżych danych nie można pobrać przed {time}.",
+        "too_many_attributes": "Mapowanie może mieć najwyżej 20 atrybutów.",
+        "invalid_attribute_name": "Nazwy atrybutów składają się z małych liter, cyfr i podkreśleń.",
+        "reserved_attribute": "Ta nazwa atrybutu jest zarezerwowana.",
+        "duplicate_attribute": "Dwa atrybuty mają tę samą nazwę.",
+        "unit_mismatch": "Ta jednostka nie pasuje do klasy urządzenia.",
+        "state_class_mismatch": "Ta klasa stanu nie pasuje do klasy urządzenia.",
+        "value_type_mismatch": "Ten typ wartości nie pasuje do klasy urządzenia, klasy stanu lub jednostki."
+      },
+      "abort": {
+        "not_loaded": "Endpoint nie działa.",
+        "reconfigure_successful": "Mapowanie zmienione."
+      }
+    },
+    "binary_sensor": {
+      "entry_type": "Sensor binarny",
+      "initiate_flow": {
+        "user": "Dodaj sensor binarny",
+        "reconfigure": "Zmień sensor binarny"
+      },
+      "step": {
+        "user": {
+          "title": "Wybierz ścieżki",
+          "data": {
+            "title": "Nazwa",
+            "value": "Wartość",
+            "refresh_sample": "Najpierw pobierz świeże dane (zużywa jedno zapytanie)"
+          },
+          "description": "Ścieżki pochodzą z zapisanych danych, więc nie zużywa to zapytań."
+        },
+        "attributes": {
+          "title": "Atrybuty",
+          "data": {
+            "attributes": "Atrybuty"
+          },
+          "description": "Opcjonalne. Atrybuty nie są zapisywane w historii."
+        },
+        "confirm": {
+          "title": "Sprawdź wynik",
+          "data": {
+            "back": "Wróć i zmień"
+          },
+          "description": "Odczyt z zapisanych danych:\n\n{preview}"
+        },
+        "settings": {
+          "title": "Ustawienia",
+          "data": {
+            "device_class": "Klasa urządzenia",
+            "on_values": "Wartości oznaczające włączenie, po przecinku",
+            "off_values": "Wartości oznaczające wyłączenie, po przecinku"
+          }
+        }
+      },
+      "error": {
+        "invalid_path": "Ta ścieżka jest niepoprawna. Przykład: $.items[0].id",
+        "position_required": "Wybierz geometrię albo szerokość i długość geograficzną.",
+        "not_loaded": "Endpoint nie działa.",
+        "refresh_refused": "Świeżych danych nie można pobrać przed {time}.",
+        "too_many_attributes": "Mapowanie może mieć najwyżej 20 atrybutów.",
+        "invalid_attribute_name": "Nazwy atrybutów składają się z małych liter, cyfr i podkreśleń.",
+        "reserved_attribute": "Ta nazwa atrybutu jest zarezerwowana.",
+        "duplicate_attribute": "Dwa atrybuty mają tę samą nazwę.",
+        "unit_mismatch": "Ta jednostka nie pasuje do klasy urządzenia.",
+        "state_class_mismatch": "Ta klasa stanu nie pasuje do klasy urządzenia.",
+        "value_type_mismatch": "Ten typ wartości nie pasuje do klasy urządzenia, klasy stanu lub jednostki."
+      },
+      "abort": {
+        "not_loaded": "Endpoint nie działa.",
+        "reconfigure_successful": "Mapowanie zmienione."
+      }
+    },
+    "device_tracker": {
+      "entry_type": "Tracker",
+      "initiate_flow": {
+        "user": "Dodaj tracker",
+        "reconfigure": "Zmień tracker"
+      },
+      "step": {
+        "user": {
+          "title": "Wybierz ścieżki",
+          "data": {
+            "title": "Nazwa",
+            "latitude": "Szerokość geograficzna",
+            "longitude": "Długość geograficzna",
+            "geometry": "Geometria GeoJSON",
+            "accuracy": "Dokładność w metrach",
+            "refresh_sample": "Najpierw pobierz świeże dane (zużywa jedno zapytanie)"
+          },
+          "description": "Ścieżki pochodzą z zapisanych danych, więc nie zużywa to zapytań."
+        },
+        "attributes": {
+          "title": "Atrybuty",
+          "data": {
+            "attributes": "Atrybuty"
+          },
+          "description": "Opcjonalne. Atrybuty nie są zapisywane w historii."
+        },
+        "confirm": {
+          "title": "Sprawdź wynik",
+          "data": {
+            "back": "Wróć i zmień"
+          },
+          "description": "Odczyt z zapisanych danych:\n\n{preview}"
+        }
+      },
+      "error": {
+        "invalid_path": "Ta ścieżka jest niepoprawna. Przykład: $.items[0].id",
+        "position_required": "Wybierz geometrię albo szerokość i długość geograficzną.",
+        "not_loaded": "Endpoint nie działa.",
+        "refresh_refused": "Świeżych danych nie można pobrać przed {time}.",
+        "too_many_attributes": "Mapowanie może mieć najwyżej 20 atrybutów.",
+        "invalid_attribute_name": "Nazwy atrybutów składają się z małych liter, cyfr i podkreśleń.",
+        "reserved_attribute": "Ta nazwa atrybutu jest zarezerwowana.",
+        "duplicate_attribute": "Dwa atrybuty mają tę samą nazwę.",
+        "unit_mismatch": "Ta jednostka nie pasuje do klasy urządzenia.",
+        "state_class_mismatch": "Ta klasa stanu nie pasuje do klasy urządzenia.",
+        "value_type_mismatch": "Ten typ wartości nie pasuje do klasy urządzenia, klasy stanu lub jednostki."
+      },
+      "abort": {
+        "not_loaded": "Endpoint nie działa.",
+        "reconfigure_successful": "Mapowanie zmienione."
+      }
+    },
+    "collection": {
+      "entry_type": "Kolekcja",
+      "initiate_flow": {
+        "user": "Dodaj kolekcję",
+        "reconfigure": "Zmień kolekcję"
+      },
+      "step": {
+        "user": {
+          "title": "Wybierz listę",
+          "data": {
+            "list_path": "Lista",
+            "refresh_sample": "Najpierw pobierz świeże dane (zużywa jedno zapytanie)"
+          },
+          "description": "Każdy element listy może stać się encją. Listy pochodzą z zapisanych danych."
+        },
+        "key": {
+          "title": "Wybierz klucz",
+          "data": {
+            "key_path": "Klucz"
+          },
+          "description": "Klucz rozpoznaje element między odpowiedziami. Prawdopodobne klucze są na początku."
+        },
+        "kind": {
+          "title": "Czym mają być elementy?",
+          "data": {
+            "kind": "Typ"
+          },
+          "description": "Tracker pasuje do obiektów stałych i pokazuje się na domyślnej Mapie. Pozycja pasuje do obiektów krótkotrwałych i nie zostawia wpisów w rejestrze. Kalendarz tworzy jedną encję z całej listy."
+        },
+        "item": {
+          "title": "Wybierz ścieżki wewnątrz elementu",
+          "data": {
+            "title": "Nazwa",
+            "name": "Nazwa elementu",
+            "value": "Wartość",
+            "latitude": "Szerokość geograficzna",
+            "longitude": "Długość geograficzna",
+            "geometry": "Geometria GeoJSON",
+            "accuracy": "Dokładność w metrach",
+            "start": "Początek",
+            "summary": "Tytuł",
+            "end": "Koniec",
+            "description": "Opis",
+            "location": "Miejsce"
+          }
+        },
+        "settings": {
+          "title": "Ustawienia",
+          "data": {
+            "value_type": "Typ wartości",
+            "device_class": "Klasa urządzenia",
+            "unit_of_measurement": "Jednostka",
+            "state_class": "Klasa stanu",
+            "suggested_display_precision": "Miejsca po przecinku",
+            "naive_local": "Czasy bez strefy są w strefie Home Assistanta",
+            "on_values": "Wartości oznaczające włączenie, po przecinku",
+            "off_values": "Wartości oznaczające wyłączenie, po przecinku"
+          }
+        },
+        "limits": {
+          "title": "Limity",
+          "data": {
+            "item_limit": "Największa liczba śledzonych elementów",
+            "removal_after": "Usuń po tylu odpowiedziach bez elementu",
+            "events": "Wysyłaj zdarzenie o nowych elementach"
+          }
+        },
+        "attributes": {
+          "title": "Atrybuty",
+          "data": {
+            "attributes": "Atrybuty"
+          },
+          "description": "Opcjonalne. Atrybuty nie są zapisywane w historii."
+        },
+        "confirm": {
+          "title": "Sprawdź wynik",
+          "data": {
+            "back": "Wróć i zmień"
+          },
+          "description": "Odczyt z zapisanych danych:\n\n{preview}"
+        },
+        "map_hint": {
+          "title": "Pokazywanie pozycji na mapie",
+          "data": {},
+          "description": "Domyślny panel Mapa nie pokazuje tych encji. Dodaj kartę mapy z ustawieniem `geo_location_sources: [{source}]`."
+        }
+      },
+      "error": {
+        "invalid_path": "Ta ścieżka jest niepoprawna. Przykład: $.items[0].id",
+        "position_required": "Wybierz geometrię albo szerokość i długość geograficzną.",
+        "not_loaded": "Endpoint nie działa.",
+        "refresh_refused": "Świeżych danych nie można pobrać przed {time}.",
+        "too_many_attributes": "Mapowanie może mieć najwyżej 20 atrybutów.",
+        "invalid_attribute_name": "Nazwy atrybutów składają się z małych liter, cyfr i podkreśleń.",
+        "reserved_attribute": "Ta nazwa atrybutu jest zarezerwowana.",
+        "duplicate_attribute": "Dwa atrybuty mają tę samą nazwę.",
+        "unit_mismatch": "Ta jednostka nie pasuje do klasy urządzenia.",
+        "state_class_mismatch": "Ta klasa stanu nie pasuje do klasy urządzenia.",
+        "value_type_mismatch": "Ten typ wartości nie pasuje do klasy urządzenia, klasy stanu lub jednostki."
+      },
+      "abort": {
+        "not_loaded": "Endpoint nie działa.",
+        "reconfigure_successful": "Mapowanie zmienione."
+      }
+    }
+  },
+  "selector": {
+    "auth_type": {
+      "options": {
+        "none": "Brak",
+        "bearer": "Bearer",
+        "header": "Klucz w nagłówku",
+        "query": "Klucz w parametrze"
+      }
+    },
+    "mode": {
+      "options": {
+        "automatic": "Automatyczny",
+        "on_demand": "Tylko na żądanie"
+      }
+    },
+    "budget_period": {
+      "options": {
+        "hour": "Godzina",
+        "day": "Dzień",
+        "month": "Miesiąc"
+      }
+    },
+    "value_type": {
+      "options": {
+        "number": "Liczba",
+        "text": "Tekst",
+        "timestamp": "Czas",
+        "boolean": "Logiczna"
+      }
+    },
+    "kind": {
+      "options": {
+        "sensor": "Sensor",
+        "binary_sensor": "Sensor binarny",
+        "device_tracker": "Tracker",
+        "geo_location": "Pozycja (krótkotrwała)",
+        "calendar": "Kalendarz"
+      }
+    },
+    "attribute": {
+      "fields": {
+        "name": {
+          "name": "Nazwa (opcjonalna)"
+        },
+        "path": {
+          "name": "Ścieżka"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "last_data": {
+        "name": "Ostatnie potwierdzone dane"
+      },
+      "status": {
+        "name": "Status",
+        "state": {
+          "ok": "OK",
+          "retrying": "Ponawianie",
+          "rate_limited": "Limit zapytań",
+          "auth_failed": "Odrzucone dane logowania",
+          "budget_exhausted": "Budżet wyczerpany",
+          "on_demand": "Na żądanie"
+        }
+      },
+      "next_update": {
+        "name": "Następna aktualizacja"
+      },
+      "requests_used": {
+        "name": "Zużyte zapytania"
+      },
+      "requests_remaining": {
+        "name": "Pozostałe zapytania"
+      },
+      "item_count": {
+        "name": "Liczba elementów"
+      }
+    },
+    "binary_sensor": {
+      "stale": {
+        "name": "Problem z danymi"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Odśwież"
+      }
+    },
+    "event": {
+      "new_item": {
+        "name": "Nowy element",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "new_item": "Nowy element"
+            }
+          }
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "budget_exhausted": {
+      "message": "Budżet zapytań jest wyczerpany do {time}."
+    },
+    "rate_limited": {
+      "message": "Endpoint poprosił o oczekiwanie do {time}."
+    }
+  },
+  "issues": {
+    "broken_mapping": {
+      "title": "Nie można odczytać mapowania {mapping}",
+      "description": "Ścieżka {path} zawiodła w ostatnich odpowiedziach ({reason}). Zmień albo usuń mapowanie."
+    },
+    "collection_list_missing": {
+      "title": "Brak listy kolekcji {mapping}",
+      "description": "W ostatnich odpowiedziach nie znaleziono listy pod {path}."
+    },
+    "collection_limit": {
+      "title": "Kolekcja {mapping} osiągnęła limit elementów",
+      "description": "Limit to {limit}, a {ignored} elementów jest pomijanych. Podnieś limit w mapowaniu."
+    },
+    "collection_unreadable": {
+      "title": "Większości elementów {mapping} nie można odczytać",
+      "description": "{count} elementów nie ma użytecznego klucza pod {path} albo poprawnej wartości."
+    },
+    "unknown_kind": {
+      "title": "Mapowanie {mapping} jest niedostępne",
+      "description": "Ten typ encji nie jest tu obsługiwany, więc mapowanie jest pomijane. Pozostaje zapisane."
+    },
+    "rate_limited": {
+      "title": "{endpoint} wciąż ogranicza zapytania",
+      "description": "Ustaw dłuższy interwał albo budżet zapytań w opcjach."
+    }
+  }
+}

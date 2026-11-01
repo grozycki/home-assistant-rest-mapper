@@ -1,0 +1,13 @@
+{
+  "domain": "rest_mapper",
+  "name": "REST Mapper",
+  "codeowners": ["@grozycki"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/grozycki/home-assistant-rest-mapper",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/grozycki/home-assistant-rest-mapper/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
