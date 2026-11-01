@@ -380,3 +380,19 @@ async def test_on_demand_expiry_follows_the_new_data(
     assert state_of(hass, ENTITY).state == "22"
     await poll(hass, freezer, 31)
     assert state_of(hass, ENTITY).state == "unavailable"
+
+
+async def test_overdue_request_waits_after_startup(
+    hass: HomeAssistant,
+    hass_storage: Storage,
+    api: FakeApi,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    api.will(response({"temp": 22}))
+    entry = make_entry(hass, hass_storage, {"temp": 21.5}, [sensor_subentry()])
+    freezer.tick(timedelta(hours=2))
+    await start(hass, entry)
+    await poll(hass, freezer, 0.9)
+    assert api.calls == 0
+    await poll(hass, freezer, 1)
+    assert api.calls == 1

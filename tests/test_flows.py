@@ -103,7 +103,7 @@ async def test_budget_slower_than_the_interval(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {**POLLING, "interval_seconds": 30, "budget_limit": 100}
     )
-    assert placeholders(result)["budget_note"] != ""
+    assert placeholders(result)["budget_note"].isdigit()
 
 
 @pytest.mark.parametrize(
@@ -539,3 +539,18 @@ async def test_reconfigure_to_another_entry(
     )
     assert result["errors"] == {"base": "already_configured"}
     assert api.calls == calls
+
+
+async def test_confirmation_lists_attributes_left_out(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    body: JsonValue = {"v": 1, "big": ["x" * 100] * 50}
+    entry = make_entry(hass, hass_storage, body, [])
+    await start(hass, entry)
+    result = await add(hass, entry, "sensor")
+    result = await step(hass, result, {"title": "T", "value": "$.v"})
+    result = await step(hass, result, {"value_type": "number"})
+    result = await step(hass, result, {"attributes": [{"path": "$.gone"}, {"path": "$.big"}]})
+    preview = placeholders(result)["preview"]
+    assert "Attribute missing: gone" in preview
+    assert "Attribute too large: big" in preview

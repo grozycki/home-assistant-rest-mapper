@@ -254,7 +254,12 @@ class EndpointCoordinator(DataUpdateCoordinator[EndpointData]):
             if not automatic:
                 decision = self.policy.check_manual()
                 if not decision.allowed:
-                    _LOGGER.debug("Manual refresh of %s refused: %s", self.name, decision.refusal)
+                    _LOGGER.warning(
+                        "Refresh of %s refused until %s: %s",
+                        self.name,
+                        decision.possible_at,
+                        decision.refusal,
+                    )
                     return self.data
             return await self._request(automatic=automatic)
         finally:

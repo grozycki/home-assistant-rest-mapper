@@ -153,3 +153,56 @@ async def test_unknown_kind_is_skipped_and_reported(
     assert "unknown_kind" in keys
     assert len(entry.subentries) == 2
     assert DOMAIN in {domain for domain, _ in ir.async_get(hass).issues}
+
+
+ITEM_CASES = {
+    "sensor": ({"value": "v"}, {"value_type": "number"}, "sensor.it_1"),
+    "binary_sensor": ({"value": "v"}, {}, "binary_sensor.it_1"),
+    "device_tracker": ({"latitude": "lat", "longitude": "lon"}, {}, "device_tracker.it_1"),
+    "calendar": ({"start": "at", "summary": "s"}, {}, "calendar.it"),
+}
+
+
+def test_every_list_kind_has_a_contract_case() -> None:
+    kinds = {
+        name
+        for name, item in KINDS.items()
+        if item.shapes & {Shape.ITEM, Shape.WHOLE_LIST} and name != "geo_location"
+    }
+    assert kinds == set(ITEM_CASES)
+
+
+@pytest.mark.parametrize("kind", ITEM_CASES)
+async def test_list_contract(
+    hass: HomeAssistant,
+    hass_storage: Storage,
+    api: FakeApi,
+    freezer: FrozenDateTimeFactory,
+    kind: str,
+) -> None:
+    roles, settings, entity_id = ITEM_CASES[kind]
+    body: JsonValue = {
+        "items": [{"id": 1, "v": 1, "lat": 50, "lon": 19, "at": "2099-01-01", "s": "S"}]
+    }
+    subentry = ConfigSubentryData(
+        data=mapping_data(
+            kind, roles, {**settings, "events": False}, {}, list_path="$.items", key_path="id"
+        ),
+        subentry_type=COLLECTION,
+        title="It",
+        unique_id=None,
+    )
+    await start(hass, make_entry(hass, hass_storage, body, [subentry], retention_seconds=3600))
+    assert api.calls == 0
+    before = state_of(hass, entity_id).state
+
+    api.will(ConnectFailedError("down"))
+    freezer.tick(timedelta(minutes=16))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert state_of(hass, entity_id).state == before
+
+    freezer.tick(timedelta(hours=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert state_of(hass, entity_id).state == "unavailable"

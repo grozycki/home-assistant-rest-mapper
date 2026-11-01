@@ -3,6 +3,7 @@ name: rest-mapper-test
 services:
   homeassistant:
     build: .
+    restart: unless-stopped
     ports:
       - "127.0.0.1:8124:8123"
     environment:

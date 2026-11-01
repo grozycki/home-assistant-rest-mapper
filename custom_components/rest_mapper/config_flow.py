@@ -115,6 +115,7 @@ from .lib import (
     fetch,
     flatten,
     parse_path,
+    read_attributes,
     read_items,
 )
 from .lib import PathError as _PathError
@@ -317,7 +318,7 @@ def _polling_schema() -> dict[vol.Marker, Any]:
 def _cost_placeholders(options: Mapping[str, Any]) -> dict[str, str]:
     """Describe what a polling choice uses."""
     if options.get(CONF_MODE) == UpdateMode.ON_DEMAND:
-        return {"per_day": "0", "per_month": "0", "budget_note": ""}
+        return {"per_day": "0", "per_month": "0", "budget_note": "-"}
     per_day = _DAY_SECONDS / float(options[CONF_INTERVAL])
     per_month = per_day * _MONTH_DAYS
     config = build_policy_config(options)
@@ -326,7 +327,7 @@ def _cost_placeholders(options: Mapping[str, Any]) -> dict[str, str]:
     return {
         "per_day": f"{per_day:.0f}",
         "per_month": f"{per_month:.0f}",
-        "budget_note": f"{spacing.total_seconds() / 60:.0f}" if slower else "",
+        "budget_note": f"{spacing.total_seconds() / 60:.0f}" if slower else "-",
     }
 
 
@@ -756,6 +757,15 @@ def _describe(value: object, mapping: MappingConfig) -> str:
     return f"{value} {unit}" if isinstance(unit, str) and unit else str(value)
 
 
+def _attribute_notes(document: JsonValue, mapping: MappingConfig) -> list[str]:
+    """List attributes that cannot be read from a document."""
+    reads = read_attributes(document, mapping.attributes)
+    missing = set(mapping.attributes) - set(reads.values) - set(reads.too_large)
+    notes = [f"Attribute missing: {name}" for name in sorted(missing)]
+    notes.extend(f"Attribute too large: {name}" for name in reads.too_large)
+    return notes
+
+
 class _MappingFlow(ConfigSubentryFlow):
     """What sensor, tracker and collection flows share."""
 
@@ -1027,9 +1037,12 @@ class SingleMappingFlow(_MappingFlow):
             dt_util.utcnow(),
             dt_util.get_default_time_zone(),
         )
+        body = coordinator.stored.body
         if read.failure is not None:
-            return f"Cannot read: {read.failure.value}"
-        return _describe(read.value, mapping)
+            return "\n\n".join(
+                (f"Cannot read: {read.failure.value}", *_attribute_notes(body, mapping))
+            )
+        return "\n\n".join((_describe(read.value, mapping), *_attribute_notes(body, mapping)))
 
 
 def _single_flow(kind: str) -> type[SingleMappingFlow]:
@@ -1218,6 +1231,8 @@ class CollectionFlow(_MappingFlow):
         for key, read in list(reads.items())[:_PREVIEW_ITEMS]:
             value = read.failure.value if read.failure else _describe(read.value, mapping)
             lines.append(f"{key}: {value}")
+        for item in list(items.items.values())[:1]:
+            lines.extend(_attribute_notes(item, mapping))
         return "\n\n".join(lines)
 
     @override
