@@ -132,7 +132,9 @@
                 "suggested_display_precision": "Decimal places",
                 "naive_local": "Times without a zone are local",
                 "attributes": "Attributes",
-                "refresh_sample": "Fetch fresh data first (uses one request)"
+                "refresh_sample": "Fetch fresh data first (uses one request)",
+                "icon": "Field that chooses the icon",
+                "icons": "Icons by value, such as 8=🚧, 6=mdi:car, *=⚠️"
               }
             }
           }
@@ -154,7 +156,9 @@
         "wrong_data": "The chosen field holds the wrong kind of data, so nothing can be shown. Choose another in the advanced options.",
         "nothing_read": "Nothing can be read from this field right now.",
         "list_empty": "This list is empty right now.",
-        "position_required": "Choose a position."
+        "position_required": "Choose a position.",
+        "invalid_icons": "Write icons as value=icon, separated by commas. Use mdi:name, or up to 8 characters such as an emoji.",
+        "one_field_for_options": "Advanced options apply to one field. Choose one field, or close them and leave them empty."
       },
       "abort": {
         "not_loaded": "The endpoint is not running.",
@@ -186,7 +190,9 @@
                 "on_values": "Values meaning on, separated by commas",
                 "off_values": "Values meaning off, separated by commas",
                 "attributes": "Attributes",
-                "refresh_sample": "Fetch fresh data first (uses one request)"
+                "refresh_sample": "Fetch fresh data first (uses one request)",
+                "icon": "Field that chooses the icon",
+                "icons": "Icons by value, such as 8=🚧, 6=mdi:car, *=⚠️"
               }
             }
           }
@@ -208,7 +214,9 @@
         "wrong_data": "The chosen field holds the wrong kind of data, so nothing can be shown. Choose another in the advanced options.",
         "nothing_read": "Nothing can be read from this field right now.",
         "list_empty": "This list is empty right now.",
-        "position_required": "Choose a position."
+        "position_required": "Choose a position.",
+        "invalid_icons": "Write icons as value=icon, separated by commas. Use mdi:name, or up to 8 characters such as an emoji.",
+        "one_field_for_options": "Advanced options apply to one field. Choose one field, or close them and leave them empty."
       },
       "abort": {
         "not_loaded": "The endpoint is not running.",
@@ -238,7 +246,9 @@
               "name": "Advanced options",
               "data": {
                 "attributes": "Attributes",
-                "refresh_sample": "Fetch fresh data first (uses one request)"
+                "refresh_sample": "Fetch fresh data first (uses one request)",
+                "icon": "Field that chooses the icon",
+                "icons": "Icons by value, such as 8=🚧, 6=mdi:car, *=⚠️"
               }
             }
           }
@@ -260,7 +270,9 @@
         "wrong_data": "The chosen field holds the wrong kind of data, so nothing can be shown. Choose another in the advanced options.",
         "nothing_read": "Nothing can be read from this field right now.",
         "list_empty": "This list is empty right now.",
-        "position_required": "Choose a position."
+        "position_required": "Choose a position.",
+        "invalid_icons": "Write icons as value=icon, separated by commas. Use mdi:name, or up to 8 characters such as an emoji.",
+        "one_field_for_options": "Advanced options apply to one field. Choose one field, or close them and leave them empty."
       },
       "abort": {
         "not_loaded": "The endpoint is not running.",
@@ -318,7 +330,9 @@
                 "removal_after": "Remove after this many responses without the item",
                 "events": "Fire an event for new items",
                 "attributes": "Attributes",
-                "refresh_sample": "Fetch fresh data first (uses one request)"
+                "refresh_sample": "Fetch fresh data first (uses one request)",
+                "icon": "Field that chooses the icon",
+                "icons": "Icons by value, such as 8=🚧, 6=mdi:car, *=⚠️"
               }
             }
           }
@@ -340,7 +354,9 @@
         "wrong_data": "The chosen field holds the wrong kind of data, so nothing can be shown. Choose another in the advanced options.",
         "nothing_read": "Nothing can be read from this field right now.",
         "list_empty": "This list is empty right now.",
-        "position_required": "Choose a position."
+        "position_required": "Choose a position.",
+        "invalid_icons": "Write icons as value=icon, separated by commas. Use mdi:name, or up to 8 characters such as an emoji.",
+        "one_field_for_options": "Advanced options apply to one field. Choose one field, or close them and leave them empty."
       },
       "abort": {
         "not_loaded": "The endpoint is not running.",
@@ -415,8 +431,7 @@
         "attribute_too_large": "Attribute too large: {name}",
         "reason_missing": "Not found in the data.",
         "reason_null": "Empty right now.",
-        "reason_type_mismatch": "This is the wrong kind of data.",
-        "map_hint": "The default Map does not show these. Add a map card with `geo_location_sources: [{source}]`."
+        "reason_type_mismatch": "This is the wrong kind of data."
       }
     }
   },

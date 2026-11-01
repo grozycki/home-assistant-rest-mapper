@@ -35,6 +35,7 @@ class ValueRead:
     failures: int = 0
     failure: Failure | None = None
     name: str | None = None
+    icon: str | None = None
 
     def to_data(self) -> dict[str, JsonValue]:
         """Return plain data for storage."""
@@ -45,6 +46,7 @@ class ValueRead:
             "failures": self.failures,
             "failure": self.failure.value if self.failure else None,
             "name": self.name,
+            "icon": self.icon,
         }
 
     @classmethod
@@ -56,6 +58,7 @@ class ValueRead:
         failures = data.get("failures")
         failure = data.get("failure")
         name = data.get("name")
+        icon = data.get("icon")
         return cls(
             value=decode_value(data.get("value")),
             confirmed_at=_time(data.get("confirmed_at")),
@@ -63,6 +66,7 @@ class ValueRead:
             failures=failures if isinstance(failures, int) else 0,
             failure=Failure(failure) if failure in tuple(Failure) else None,
             name=name if isinstance(name, str) else None,
+            icon=icon if isinstance(icon, str) else None,
         )
 
 

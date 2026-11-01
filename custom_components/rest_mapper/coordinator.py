@@ -148,6 +148,7 @@ class EndpointCoordinator(DataUpdateCoordinator[EndpointData]):
         self._automatic = False
         self._failing = False
         self._save_pending = False
+        self._last_finished: datetime | None = None
 
     @property
     def retention(self) -> timedelta | None:
@@ -252,6 +253,8 @@ class EndpointCoordinator(DataUpdateCoordinator[EndpointData]):
             if automatic and not self.policy.is_due():
                 return self.data
             if not automatic:
+                if self._just_fetched():
+                    return self.data
                 decision = self.policy.check_manual()
                 if not decision.allowed:
                     _LOGGER.warning(
@@ -265,8 +268,24 @@ class EndpointCoordinator(DataUpdateCoordinator[EndpointData]):
         finally:
             self._schedule_next()
 
+    def _just_fetched(self) -> bool:
+        """Tell whether a refresh asked for during a request would only repeat it.
+
+        Refreshes run one after another, so such a refresh arrives right after it ends.
+        """
+        finished = self._last_finished
+        cooldown = timedelta(seconds=REFRESH_COOLDOWN_SECONDS)
+        return finished is not None and dt_util.utcnow() - finished < cooldown
+
     async def _request(self, *, automatic: bool) -> EndpointData:
         """Send one request and record its outcome."""
+        try:
+            return await self._send(automatic=automatic)
+        finally:
+            self._last_finished = dt_util.utcnow()
+
+    async def _send(self, *, automatic: bool) -> EndpointData:
+        """Fetch, and turn every outcome into data."""
         policy = self.policy
         policy.record_sent()
         self._save_later()
@@ -370,9 +389,13 @@ class EndpointCoordinator(DataUpdateCoordinator[EndpointData]):
             raise self.refusal_error(decision)
         await self.async_refresh()
 
-    async def async_replace_sample(self, fetched: Fetched, *, credentials_changed: bool) -> None:
+    async def async_replace_sample(
+        self, fetched: Fetched, *, credentials_changed: bool, address_changed: bool = False
+    ) -> None:
         """Use a test request's result from reconfiguring or reauthenticating."""
         policy = self.policy
+        if address_changed:
+            self.data = EndpointData(self.data.reads, {}, self.data.confirmed_at)
         policy.record_sent()
         if credentials_changed:
             policy.credentials_changed()

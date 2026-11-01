@@ -11,11 +11,13 @@ from custom_components.rest_mapper.const import DOMAIN
 from custom_components.rest_mapper.lib import (
     AuthFailedError,
     ConnectFailedError,
+    JsonValue,
     NotModified,
     RateLimitedError,
     ServerFailedError,
 )
-from homeassistant.config_entries import SOURCE_REAUTH
+from custom_components.rest_mapper.mappings import mapping_data
+from homeassistant.config_entries import SOURCE_REAUTH, ConfigSubentryData
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
@@ -428,3 +430,40 @@ async def test_options_changed_during_a_reload_are_not_lost(
     await reload
     await hass.async_block_till_done()
     assert entry.runtime_data.policy.config.interval.total_seconds() == 120
+
+
+async def test_refresh_right_after_a_request_sends_nothing_more(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    api.will(response({"temp": 22}))
+    entry = make_entry(hass, hass_storage, {"temp": 21.5}, [sensor_subentry()])
+    await start(hass, entry)
+    await entry.runtime_data.async_refresh()
+    await entry.runtime_data.async_refresh()
+    assert api.calls == 1
+
+
+async def test_new_credentials_keep_new_item_events(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    subentry = ConfigSubentryData(
+        data=mapping_data(
+            "sensor",
+            {"value": "v"},
+            {"value_type": "number", "events": True},
+            {},
+            list_path="$.items",
+            key_path="id",
+        ),
+        subentry_type="collection",
+        title="Things",
+        unique_id=None,
+    )
+    body: JsonValue = {"items": [{"id": 1, "v": 1}]}
+    entry = make_entry(hass, hass_storage, body, [subentry])
+    await start(hass, entry)
+    await entry.runtime_data.async_replace_sample(
+        response({"items": [{"id": 1, "v": 1}, {"id": 2, "v": 2}]}), credentials_changed=True
+    )
+    await hass.async_block_till_done()
+    assert state_of(hass, "event.things_new_item").attributes["key"] == "2"

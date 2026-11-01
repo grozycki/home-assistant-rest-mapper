@@ -15,7 +15,9 @@ GET and JSON only. Authentication is none, Bearer, or a key in a header or query
 
 ## Installation
 
-The repositories are private for now, so nothing is in the Marketplace or on PyPI. Copy `custom_components/rest_mapper` to your `config/custom_components/` folder and restart. It needs Home Assistant 2026.10 or later. The library is included in the integration.
+Add this repository as a custom repository of type **Integration** in HACS, install REST Mapper and restart. To install by hand, copy `custom_components/rest_mapper` to your `config/custom_components/` folder and restart.
+
+It needs Home Assistant 2026.10 or later. The library [rest-mapper](https://github.com/grozycki/rest-mapper) is included in the integration, so nothing else is installed.
 
 ## Setup
 
@@ -34,20 +36,18 @@ A budget is a local count of the requests sent, including failures and `304` res
 
 ### Choosing what list items become
 
-| Type | Fits | Shown on the default Map | In the entity registry |
-|---|---|---|---|
-| Tracker | Objects that stay, such as a siren or a vehicle | Yes | Yes |
-| Position (`geo_location`) | Short-lived objects, such as aircraft or incidents | No, use a map card | No |
-| Sensor, binary sensor | Values, one entity per item | No | Yes |
-| Calendar | Dated lists, one entity for the whole list | No | Yes |
+| Type | Fits | In the entity registry |
+|---|---|---|
+| Tracker | Objects that stay, such as a siren or a vehicle | Yes |
+| Position (`geo_location`) | Short-lived objects, such as aircraft or incidents | No |
+| Sensor, binary sensor | Values, one entity per item | Yes |
+| Calendar | Dated lists, one entity for the whole list | Yes |
 
-The default Map does not show `geo_location` entities. Add a map card with the source shown at the end of the flow:
+Trackers and positions appear on the Map dashboard.
 
-```yaml
-type: map
-geo_location_sources:
-  - rest_mapper_planes
-```
+### Icons on the map
+
+Under **Advanced options**, choose the field that decides the icon, and list icons by value, for example `8=🚧, 6=🚗, *=⚠️`. `*` stands for any other value. Emoji and short text appear on the Map as they are. `mdi:car` sets the entity's icon, which map cards show with `label_mode: icon`.
 
 ## Examples
 
@@ -86,7 +86,7 @@ Delete the integration on its page, which also deletes its stored data, then rem
 
 ## Development
 
-The library lives in the `rest-mapper` repository. After changing it, copy it in:
+The library lives in the [rest-mapper](https://github.com/grozycki/rest-mapper) repository. After changing it, copy it in:
 
 ```bash
 python scripts/vendor_library.py

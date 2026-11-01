@@ -628,6 +628,114 @@ async def test_refresh_toggle_does_not_stay_on(
     assert suggested["refresh_sample"] is None
 
 
+async def test_settings_follow_the_field(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, BODY, [])
+    await start(hass, entry)
+    result = await add(hass, entry, "sensor")
+    settings = adv(value_type="number", device_class="temperature", unit_of_measurement="°C")
+    result = await step(hass, result, {"selected_fields": ["$.gone"], **settings})
+    assert result["errors"] == {"base": "nothing_read"}
+    result = await step(hass, result, {"selected_fields": ["$.name"], **settings})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert state_of(hass, "sensor.api_example_com_name").state == "x"
+
+
+async def test_settings_typed_for_the_new_field_stay(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, {"h": 60, "t": 5}, [])
+    await start(hass, entry)
+    result = await add(hass, entry, "sensor")
+    result = await step(hass, result, {"selected_fields": ["$.gone"]})
+    result = await step(
+        hass,
+        result,
+        {"selected_fields": ["$.h"], **adv(value_type="number", device_class="humidity")},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    state = state_of(hass, "sensor.api_example_com_h")
+    assert state.attributes["device_class"] == "humidity"
+
+
+async def test_clearing_a_setting_on_edit(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    subentry = ConfigSubentryData(
+        data=mapping_data(
+            "sensor",
+            {"value": "$.current.temp_c", "icon": "$.name"},
+            {"value_type": "number", "device_class": "temperature", "unit_of_measurement": "°C"},
+            {},
+        ),
+        subentry_type="sensor",
+        title="Temp",
+        unique_id=None,
+    )
+    entry = make_entry(hass, hass_storage, BODY, [subentry])
+    await start(hass, entry)
+    result = await entry.start_subentry_reconfigure_flow(hass, next(iter(entry.subentries)))
+    result = await step(
+        hass,
+        result,
+        {"title": "Temp", "value": "$.current.temp_c", **adv(value_type="number")},
+    )
+    assert result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+    state = state_of(hass, "sensor.api_example_com_temp")
+    assert "device_class" not in state.attributes
+
+
+async def test_icon_path_survives_an_unsent_section(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    subentry = ConfigSubentryData(
+        data=mapping_data(
+            "sensor",
+            {"value": "$.current.temp_c", "icon": "$.name"},
+            {"value_type": "number", "icons": "x=A, *=B"},
+            {},
+        ),
+        subentry_type="sensor",
+        title="Temp",
+        unique_id=None,
+    )
+    entry = make_entry(hass, hass_storage, BODY, [subentry])
+    await start(hass, entry)
+    result = await entry.start_subentry_reconfigure_flow(hass, next(iter(entry.subentries)))
+    await step(hass, result, {"title": "Temp", "value": "$.current.temp_c"})
+    await hass.async_block_till_done()
+    assert next(iter(entry.subentries.values())).data["roles"]["icon"] == "$.name"
+
+
+async def test_empty_section_allows_several_fields(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, BODY, [])
+    await start(hass, entry)
+    result = await add(hass, entry, "sensor")
+    result = await step(
+        hass, result, {"selected_fields": ["$.name", "$.current.temp_c"], **adv(attributes=[])}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+
+async def test_options_need_one_field(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, BODY, [])
+    await start(hass, entry)
+    result = await add(hass, entry, "sensor")
+    result = await step(
+        hass, result, {"selected_fields": ["$.name", "$.current.temp_c"], **adv(icons="*=X")}
+    )
+    assert result["errors"] == {"base": "one_field_for_options"}
+
+
 async def test_unit_does_not_fit(hass: HomeAssistant, hass_storage: Storage, api: FakeApi) -> None:
     entry = make_entry(hass, hass_storage, BODY, [])
     await start(hass, entry)

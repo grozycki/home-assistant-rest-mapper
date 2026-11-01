@@ -1,6 +1,6 @@
 """The one place the integration reaches the library.
 
-Going public means replacing these imports with the PyPI package.
+The library ships inside the integration. If it moves to PyPI, only these imports change.
 """
 
 from __future__ import annotations

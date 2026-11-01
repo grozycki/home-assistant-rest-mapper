@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from functools import lru_cache
 from typing import TYPE_CHECKING, final
 
-from .const import ROLE_NAME
+from .const import ANY_VALUE, CONF_ICONS, ICON_PREFIX, MAX_ICON_TEXT, ROLE_ICON, ROLE_NAME
 from .kinds import KINDS, MappingConfig, Shape
 from .lib import (
     DEFAULT_ITEM_LIMIT,
@@ -105,8 +106,9 @@ def read_value(
     result = KINDS[mapping.kind].read(document, mapping, local)
     attributes = read_attributes(document, mapping.attributes).values
     name = _read_name(document, mapping) or previous.name
+    icon = read_icon(document, mapping)
     if result is Failure.NULL:
-        return ValueRead(None, now, attributes, 0, None, name)
+        return ValueRead(None, now, attributes, 0, None, name, icon)
     if isinstance(result, Failure):
         return replace(
             previous,
@@ -114,8 +116,39 @@ def read_value(
             failures=previous.failures + 1,
             failure=result,
             name=name,
+            icon=icon or previous.icon,
         )
-    return ValueRead(result, now, attributes, 0, None, name)
+    return ValueRead(result, now, attributes, 0, None, name, icon)
+
+
+@lru_cache(maxsize=32)
+def parse_icons(text: str) -> dict[str, str] | None:
+    """Read `value=icon` pairs, or return `None` for a table that makes no sense."""
+    table: dict[str, str] = {}
+    for part in text.replace("\n", ",").split(","):
+        if not part.strip():
+            continue
+        value, separator, icon = part.partition("=")
+        icon = icon.strip()
+        if not separator or not value.strip() or not icon:
+            return None
+        if not icon.startswith(ICON_PREFIX) and len(icon) > MAX_ICON_TEXT:
+            return None
+        table[value.strip().casefold()] = icon
+    return table
+
+
+def read_icon(document: JsonValue, mapping: MappingConfig) -> str | None:
+    """Choose an icon by a value."""
+    text = mapping.settings.get(CONF_ICONS)
+    table = parse_icons(text) if isinstance(text, str) else None
+    if not table:
+        return None
+    path = mapping.roles.get(ROLE_ICON)
+    value = read_field(document, path, ValueSpec(ValueType.TEXT)) if path is not None else None
+    if isinstance(value, str) and value.strip().casefold() in table:
+        return table[value.strip().casefold()]
+    return table.get(ANY_VALUE)
 
 
 def _read_name(document: JsonValue, mapping: MappingConfig) -> str | None:

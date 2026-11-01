@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import html
 from collections.abc import Callable
 from typing import TYPE_CHECKING, override
 
@@ -16,6 +18,7 @@ from .const import (
     ATTR_LAST_CONFIRMED,
     CONFIRMATION_WRITE_INTERVAL,
     DOMAIN,
+    ICON_PREFIX,
     MAX_KEY_LENGTH,
     MAX_NAME_LENGTH,
     SHORT_KEY_LENGTH,
@@ -55,6 +58,16 @@ def collection_device(coordinator: EndpointCoordinator, mapping: MappingConfig) 
         entry_type=DeviceEntryType.SERVICE,
         via_device_id=coordinator.endpoint_device_id,
     )
+
+
+def picture_for(text: str) -> str:
+    """Draw a short text, such as an emoji, as an image."""
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">'
+        '<text x="20" y="29" font-size="28" text-anchor="middle">'
+        f"{html.escape(text)}</text></svg>"
+    )
+    return f"data:image/svg+xml;base64,{base64.b64encode(svg.encode()).decode()}"
 
 
 def item_unique_id(subentry_id: str, key: str) -> str:
@@ -121,12 +134,28 @@ class MappedEntity(CoordinatorEntity[EndpointCoordinator]):
             attributes[ATTR_LAST_CONFIRMED] = read.confirmed_at.isoformat()
         return attributes
 
+    @property
+    @override
+    def icon(self) -> str | None:
+        """Return an icon chosen by a value."""
+        icon = self.current.icon
+        return icon if icon is not None and icon.startswith(ICON_PREFIX) else None
+
+    @property
+    @override
+    def entity_picture(self) -> str | None:
+        """Draw anything but an icon name, as the default Map shows only pictures."""
+        icon = self.current.icon
+        if icon is None or icon.startswith(ICON_PREFIX):
+            return None
+        return picture_for(icon)
+
     @callback
     @override
     def _handle_coordinator_update(self) -> None:
         """Write when something changed, and rarely when only the age did."""
         read = self.current
-        content = (read.value, read.attributes, read.name, self.available)
+        content = (read.value, read.attributes, read.name, read.icon, self.available)
         confirmed = read.confirmed_at
         written = self._written_confirmation
         age_is_due = confirmed is not None and (

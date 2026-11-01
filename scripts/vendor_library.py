@@ -1,6 +1,6 @@
 """Copy the rest-mapper library into the integration, or check the copy.
 
-While the repositories are private, Home Assistant cannot install the library with pip.
+The library is not on PyPI, so it ships inside the integration.
 """
 
 from __future__ import annotations

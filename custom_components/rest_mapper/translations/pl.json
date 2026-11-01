@@ -132,7 +132,9 @@
                 "suggested_display_precision": "Miejsca po przecinku",
                 "naive_local": "Czasy bez strefy są lokalne",
                 "attributes": "Atrybuty",
-                "refresh_sample": "Najpierw pobierz świeże dane (zużywa jedno zapytanie)"
+                "refresh_sample": "Najpierw pobierz świeże dane (zużywa jedno zapytanie)",
+                "icon": "Pole wybierające ikonę",
+                "icons": "Ikony wg wartości, np. 8=🚧, 6=mdi:car, *=⚠️"
               }
             }
           }
@@ -154,7 +156,9 @@
         "wrong_data": "Wybrane pole zawiera dane złego rodzaju, więc nic nie zostanie pokazane. Wybierz inne w opcjach zaawansowanych.",
         "nothing_read": "Z tego pola nie da się teraz nic odczytać.",
         "list_empty": "Ta lista jest teraz pusta.",
-        "position_required": "Wybierz pozycję."
+        "position_required": "Wybierz pozycję.",
+        "invalid_icons": "Wpisz ikony jako wartość=ikona, po przecinku. Użyj mdi:nazwa albo do 8 znaków, np. emoji.",
+        "one_field_for_options": "Opcje zaawansowane dotyczą jednego pola. Wybierz jedno pole albo zostaw je puste."
       },
       "abort": {
         "not_loaded": "Endpoint nie działa.",
@@ -186,7 +190,9 @@
                 "on_values": "Wartości oznaczające włączenie, po przecinku",
                 "off_values": "Wartości oznaczające wyłączenie, po przecinku",
                 "attributes": "Atrybuty",
-                "refresh_sample": "Najpierw pobierz świeże dane (zużywa jedno zapytanie)"
+                "refresh_sample": "Najpierw pobierz świeże dane (zużywa jedno zapytanie)",
+                "icon": "Pole wybierające ikonę",
+                "icons": "Ikony wg wartości, np. 8=🚧, 6=mdi:car, *=⚠️"
               }
             }
           }
@@ -208,7 +214,9 @@
         "wrong_data": "Wybrane pole zawiera dane złego rodzaju, więc nic nie zostanie pokazane. Wybierz inne w opcjach zaawansowanych.",
         "nothing_read": "Z tego pola nie da się teraz nic odczytać.",
         "list_empty": "Ta lista jest teraz pusta.",
-        "position_required": "Wybierz pozycję."
+        "position_required": "Wybierz pozycję.",
+        "invalid_icons": "Wpisz ikony jako wartość=ikona, po przecinku. Użyj mdi:nazwa albo do 8 znaków, np. emoji.",
+        "one_field_for_options": "Opcje zaawansowane dotyczą jednego pola. Wybierz jedno pole albo zostaw je puste."
       },
       "abort": {
         "not_loaded": "Endpoint nie działa.",
@@ -238,7 +246,9 @@
               "name": "Opcje zaawansowane",
               "data": {
                 "attributes": "Atrybuty",
-                "refresh_sample": "Najpierw pobierz świeże dane (zużywa jedno zapytanie)"
+                "refresh_sample": "Najpierw pobierz świeże dane (zużywa jedno zapytanie)",
+                "icon": "Pole wybierające ikonę",
+                "icons": "Ikony wg wartości, np. 8=🚧, 6=mdi:car, *=⚠️"
               }
             }
           }
@@ -260,7 +270,9 @@
         "wrong_data": "Wybrane pole zawiera dane złego rodzaju, więc nic nie zostanie pokazane. Wybierz inne w opcjach zaawansowanych.",
         "nothing_read": "Z tego pola nie da się teraz nic odczytać.",
         "list_empty": "Ta lista jest teraz pusta.",
-        "position_required": "Wybierz pozycję."
+        "position_required": "Wybierz pozycję.",
+        "invalid_icons": "Wpisz ikony jako wartość=ikona, po przecinku. Użyj mdi:nazwa albo do 8 znaków, np. emoji.",
+        "one_field_for_options": "Opcje zaawansowane dotyczą jednego pola. Wybierz jedno pole albo zostaw je puste."
       },
       "abort": {
         "not_loaded": "Endpoint nie działa.",
@@ -318,7 +330,9 @@
                 "removal_after": "Usuń po tylu odpowiedziach bez elementu",
                 "events": "Wysyłaj zdarzenie o nowych elementach",
                 "attributes": "Atrybuty",
-                "refresh_sample": "Najpierw pobierz świeże dane (zużywa jedno zapytanie)"
+                "refresh_sample": "Najpierw pobierz świeże dane (zużywa jedno zapytanie)",
+                "icon": "Pole wybierające ikonę",
+                "icons": "Ikony wg wartości, np. 8=🚧, 6=mdi:car, *=⚠️"
               }
             }
           }
@@ -340,7 +354,9 @@
         "wrong_data": "Wybrane pole zawiera dane złego rodzaju, więc nic nie zostanie pokazane. Wybierz inne w opcjach zaawansowanych.",
         "nothing_read": "Z tego pola nie da się teraz nic odczytać.",
         "list_empty": "Ta lista jest teraz pusta.",
-        "position_required": "Wybierz pozycję."
+        "position_required": "Wybierz pozycję.",
+        "invalid_icons": "Wpisz ikony jako wartość=ikona, po przecinku. Użyj mdi:nazwa albo do 8 znaków, np. emoji.",
+        "one_field_for_options": "Opcje zaawansowane dotyczą jednego pola. Wybierz jedno pole albo zostaw je puste."
       },
       "abort": {
         "not_loaded": "Endpoint nie działa.",
@@ -415,8 +431,7 @@
         "attribute_too_large": "Atrybut jest za duży: {name}",
         "reason_missing": "Nie ma tego w danych.",
         "reason_null": "Teraz puste.",
-        "reason_type_mismatch": "To dane złego rodzaju.",
-        "map_hint": "Domyślna Mapa ich nie pokazuje. Dodaj kartę mapy z `geo_location_sources: [{source}]`."
+        "reason_type_mismatch": "To dane złego rodzaju."
       }
     }
   },

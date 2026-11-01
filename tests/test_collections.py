@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
+from custom_components.rest_mapper.entity import picture_for
+from custom_components.rest_mapper.evaluation import parse_icons
 from custom_components.rest_mapper.lib import ConnectFailedError, JsonValue
 from custom_components.rest_mapper.mappings import mapping_data
 from homeassistant.config_entries import SOURCE_USER, ConfigSubentryData, SubentryFlowResult
@@ -473,7 +475,7 @@ async def test_proposal_for_tomtom_needs_no_typed_path(
     entry = make_entry(hass, hass_storage, fixture_json("tomtom_incidents.json"), [])
     await start(hass, entry)
     result = await add(hass, entry)
-    assert "map" in placeholders(result)["summary"].lower()
+    assert "Items: 3" in placeholders(result)["summary"]
     result = await step(hass, result, form(result))
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
@@ -717,3 +719,85 @@ async def test_collection_with_no_proposal_has_events(
     result = await add(hass, entry)
     result = await step(hass, result, {"list_path": "$.ac"})
     assert form(result)["advanced"]["events"] is True  # type: ignore[index]  # A section is a dict.
+
+
+ICONS = collection(
+    "geo_location",
+    {"latitude": "lat", "longitude": "lon", "icon": "v"},
+    icons="10=🚧, 20=mdi:car, *=⚠️",
+)
+
+
+async def test_icon_by_value(
+    hass: HomeAssistant,
+    hass_storage: Storage,
+    api: FakeApi,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    entry = make_entry(hass, hass_storage, items(1, 2, 3), [ICONS])
+    await start(hass, entry)
+    pictures = [
+        item.attributes.get("entity_picture") for item in hass.states.async_all("geo_location")
+    ]
+    icons = [item.attributes.get("icon") for item in hass.states.async_all("geo_location")]
+    assert sum(1 for item in pictures if item) == 2
+    assert icons.count("mdi:car") == 1
+    assert picture_for("🚧") in pictures
+
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert picture_for("🚧") in [
+        item.attributes.get("entity_picture") for item in hass.states.async_all("geo_location")
+    ]
+
+    api.will(response({"items": [{"id": 1, "v": 99, "lat": 50, "lon": 19}]}))
+    await poll(hass, freezer)
+    pictures = [
+        item.attributes.get("entity_picture") for item in hass.states.async_all("geo_location")
+    ]
+    assert picture_for("⚠️") in pictures
+
+
+def test_icon_tables() -> None:
+    assert parse_icons("8=🚧, 6=mdi:car\n*=x") == {"8": "🚧", "6": "mdi:car", "*": "x"}
+    assert parse_icons("") == {}
+    assert parse_icons("bad") is None
+    assert parse_icons("8=much too long a text") is None
+
+
+async def test_no_match_and_no_default(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = collection(
+        "geo_location", {"latitude": "lat", "longitude": "lon", "icon": "v"}, icons="5=🚧"
+    )
+    await start(hass, make_entry(hass, hass_storage, items(1), [entry]))
+    assert "entity_picture" not in hass.states.async_all("geo_location")[0].attributes
+
+
+async def test_invalid_icon_table_is_refused(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, items(1), [])
+    await start(hass, entry)
+    result = await add(hass, entry)
+    answers = form(result)
+    advanced = answers["advanced"]
+    assert isinstance(advanced, dict)
+    result = await step(hass, result, {**answers, "advanced": {**advanced, "icons": "nonsense"}})
+    assert result["errors"] == {"base": "invalid_icons"}
+
+
+async def test_address_change_starts_collections_afresh(
+    hass: HomeAssistant, hass_storage: Storage, api: FakeApi
+) -> None:
+    entry = make_entry(hass, hass_storage, items(1, 2), [SENSORS])
+    await start(hass, entry)
+    fired = async_capture_events(hass, "state_changed")
+    await entry.runtime_data.async_replace_sample(
+        response(items(7)), credentials_changed=True, address_changed=True
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.things_1") is None
+    assert state_of(hass, "sensor.things_7").state == "70"
+    assert not [item for item in fired if item.data["entity_id"] == "event.things_new_item"]

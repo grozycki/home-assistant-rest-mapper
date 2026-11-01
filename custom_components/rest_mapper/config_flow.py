@@ -68,6 +68,7 @@ from .const import (
     CONF_AUTH_VALUE,
     CONF_BUDGET_LIMIT,
     CONF_BUDGET_PERIOD,
+    CONF_ICONS,
     CONF_INTERVAL,
     CONF_MAX_KIB,
     CONF_MODE,
@@ -80,9 +81,11 @@ from .const import (
     MAX_ATTRIBUTES,
     MIN_RETENTION,
     RETENTION_INTERVALS,
+    ROLE_ICON,
     ROLE_NAME,
 )
 from .endpoint import build_policy_config, build_spec
+from .evaluation import parse_icons
 from .kinds import KINDS, KindDefinition, Shape
 from .lib import (
     DEFAULT_MAX_BYTES,
@@ -125,7 +128,7 @@ from .lib import (
     suggest_field,
 )
 from .lib import PathError as _PathError
-from .mappings import mapping_data, parse_mapping, source_for
+from .mappings import mapping_data, parse_mapping
 from .proposals import (
     Check,
     Proposal,
@@ -708,7 +711,11 @@ class RestMapperConfigFlow(ConfigFlow, domain=DOMAIN):
             return
         if entry.state is ConfigEntryState.LOADED:
             coordinator: EndpointCoordinator = entry.runtime_data
-            await coordinator.async_replace_sample(result.fetched, credentials_changed=True)
+            await coordinator.async_replace_sample(
+                result.fetched,
+                credentials_changed=True,
+                address_changed=data[CONF_URL] != entry.data[CONF_URL],
+            )
         else:
             store = endpoint_store(self.hass, str(data[CONF_STORAGE_ID]))
             stored = await async_load(store)
@@ -743,6 +750,14 @@ class RestMapperOptionsFlow(OptionsFlow):
             vol.Schema(fields), _options_defaults(self.config_entry.options)
         )
         return self.async_show_form(step_id="init", data_schema=schema)
+
+
+def _icon_fields(fields: Sequence[FlatField]) -> dict[vol.Marker, Any]:
+    """Return the fields choosing an icon by a value."""
+    return {
+        vol.Optional(ROLE_ICON): _labelled_field(fields),
+        vol.Optional(CONF_ICONS): _text_field(),
+    }
 
 
 def _attribute_field(paths: Sequence[FlatField]) -> ObjectSelector:
@@ -917,6 +932,8 @@ class _MappingFlow(ConfigSubentryFlow):
         self._listed = Flattened((), (), False)
         self._labels = ClassLabels()
         self._suggestions: list[tuple[CollectionCandidate, CollectionSuggestion]] = []
+        self._field: str | None = None
+        self._typed: dict[str, JsonValue] = {}
         self._offer_save_anyway = False
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
@@ -1052,6 +1069,7 @@ class SingleMappingFlow(_MappingFlow):
         advanced: dict[vol.Marker, Any] = dict(_settings_schema(self.kind_name, self._labels))
         if self.kind_name != "device_tracker" and self.source != "reconfigure":
             advanced[vol.Optional(TITLE)] = _text_field()
+        advanced.update(_icon_fields(fields))
         advanced[vol.Optional(ATTRIBUTES)] = _attribute_field(fields)
         advanced[vol.Optional(REFRESH)] = BooleanSelector()
         main[vol.Optional(ADVANCED)] = section(vol.Schema(advanced), {"collapsed": True})
@@ -1062,6 +1080,7 @@ class SingleMappingFlow(_MappingFlow):
             **previous,
             ADVANCED: {
                 **self._settings,
+                ROLE_ICON: self._roles.get(ROLE_ICON),
                 ATTRIBUTES: self._attribute_rows(),
                 **{
                     key: value
@@ -1102,6 +1121,8 @@ class SingleMappingFlow(_MappingFlow):
         advanced = user_input.get(ADVANCED, {})
         rows = advanced.get(ATTRIBUTES, self._attribute_rows())
         attributes, error = _read_attribute_rows(rows, relative=False)
+        if error is None and parse_icons(str(advanced.get(CONF_ICONS, ""))) is None:
+            error = "invalid_icons"
         if error is not None:
             errors["base"] = error
             return None
@@ -1116,8 +1137,17 @@ class SingleMappingFlow(_MappingFlow):
             errors["base"] = "invalid_path"
             return None
         if len(paths) > 1:
+            if any(advanced.values()):
+                errors["base"] = "one_field_for_options"
+                return None
             return await self._async_save_several(paths, user_input, errors, placeholders)
         return await self._async_save_one(paths[0], user_input, errors, placeholders)
+
+    def _keep_icon_role(self, user_input: Mapping[str, Any], stored: str | None) -> None:
+        """Note the path that chooses the icon. A section not sent changes nothing."""
+        path = str(user_input[ADVANCED].get(ROLE_ICON, "")) if ADVANCED in user_input else stored
+        if path and path.strip():
+            self._roles[ROLE_ICON] = path.strip()
 
     def _chosen_paths(self, user_input: Mapping[str, Any]) -> list[str]:
         """Return the fields chosen."""
@@ -1206,12 +1236,20 @@ class SingleMappingFlow(_MappingFlow):
             {
                 key: value
                 for key, value in advanced.items()
-                if key not in (ATTRIBUTES, REFRESH, TITLE)
+                if key not in (ATTRIBUTES, REFRESH, TITLE, ROLE_ICON)
             }
         )
+        if self._field not in (None, path):
+            typed = {key: value for key, value in typed.items() if self._typed.get(key) != value}
+        self._field = path
+        self._typed = dict(typed)
         suggested = data["settings"]
         base: dict[str, JsonValue] = dict(suggested) if isinstance(suggested, dict) else {}
-        kept = self._settings if self.source == "reconfigure" else base
+        section_sent = ADVANCED in user_input
+        reconfiguring = self.source == "reconfigure"
+        kept = (
+            self._settings if reconfiguring and not section_sent else {} if reconfiguring else base
+        )
         self._settings = {**kept, **typed}
         if self.kind_name == "sensor":
             self._settings.setdefault("value_type", ValueType.TEXT.value)
@@ -1220,7 +1258,9 @@ class SingleMappingFlow(_MappingFlow):
             if error is not None:
                 errors["base"] = error
                 return None
+        icon_path = self._roles.get(ROLE_ICON)
         self._roles = {"value": path}
+        self._keep_icon_role(user_input, icon_path)
         self._title = str(user_input.get(TITLE) or advanced.get(TITLE) or title)
         return await self._async_check_and_save(user_input, errors, placeholders)
 
@@ -1244,7 +1284,11 @@ class SingleMappingFlow(_MappingFlow):
         if error is not None:
             errors["base"] = error
             return None
+        icon_path = self._roles.get(ROLE_ICON)
         self._roles = roles
+        self._keep_icon_role(user_input, icon_path)
+        if ADVANCED in user_input:
+            self._settings = _clean_settings({CONF_ICONS: user_input[ADVANCED].get(CONF_ICONS)})
         self._title = str(user_input[TITLE])
         return await self._async_check_and_save(user_input, errors, placeholders)
 
@@ -1402,6 +1446,7 @@ class CollectionFlow(_MappingFlow):
         advanced[vol.Optional(REMOVAL_AFTER)] = _number_field(1, 10)
         advanced[vol.Optional(EVENTS)] = BooleanSelector()
         if definition.has_attributes:
+            advanced.update(_icon_fields(texts_fields))
             advanced[vol.Optional(ATTRIBUTES)] = _attribute_field(texts_fields)
         advanced[vol.Optional(REFRESH)] = BooleanSelector()
         main[vol.Optional(ADVANCED)] = section(vol.Schema(advanced), {"collapsed": True})
@@ -1427,7 +1472,7 @@ class CollectionFlow(_MappingFlow):
         definition = KINDS[self._kind]
         names = [role.name for role in definition.roles]
         if Shape.ITEM in definition.shapes:
-            names.append(ROLE_NAME)
+            names.extend((ROLE_NAME, ROLE_ICON))
         roles = {name: str(advanced[name]).strip() for name in names if advanced.get(name)}
         for role in definition.roles:
             if role.required and role.name not in roles:
@@ -1442,11 +1487,13 @@ class CollectionFlow(_MappingFlow):
         attributes, error = _read_attribute_rows(advanced.get(ATTRIBUTES, []), relative=True)
         if error is not None:
             return error
+        if parse_icons(str(advanced.get(CONF_ICONS, ""))) is None:
+            return "invalid_icons"
         settings_keys = {str(marker) for marker in _settings_schema(self._kind, self._labels)}
         settings = _clean_settings(
             {
                 name: advanced[name]
-                for name in (*settings_keys, ITEM_LIMIT, REMOVAL_AFTER, EVENTS)
+                for name in (*settings_keys, ITEM_LIMIT, REMOVAL_AFTER, EVENTS, CONF_ICONS)
                 if name in advanced
             }
         )
@@ -1517,11 +1564,7 @@ class CollectionFlow(_MappingFlow):
     async def _async_summary(self, texts: Texts) -> str:
         """Say what the proposal will create."""
         check = await self._async_check(texts)
-        summary = check.summary if check is not None else ""
-        mapping = parse_mapping("preview", self._title, COLLECTION, self._stored_data())
-        if self._kind == "geo_location" and mapping is not None:
-            return f"{summary}\n\n{texts('map_hint', source=source_for(mapping))}"
-        return summary
+        return check.summary if check is not None else ""
 
     async def _async_submit(
         self, user_input: dict[str, Any], errors: dict[str, str]
