@@ -86,6 +86,8 @@ Delete the integration on its page, which also deletes its stored data, then rem
 
 ## Development
 
+GitHub runs only the HACS and hassfest checks. Run tests, mypy and Ruff locally.
+
 The library lives in the [rest-mapper](https://github.com/grozycki/rest-mapper) repository. After changing it, copy it in:
 
 ```bash
